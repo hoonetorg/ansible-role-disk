@@ -1,0 +1,13 @@
+---
+- name: Create partitions
+  community.general.parted:
+    device: "{{ item.0.device }}"
+    number: "{{ item.1.number }}"
+    name: "{{ item.1.name }}"
+    part_start: "{{ item.1.start }}"
+    part_end: "{{ item.1.end }}"
+    flags: "{{ item.1.flags | default([]) }}"
+    state: "{{ item.1.state | default('present') }}"
+    label: "gpt"
+    resize: false
+  loop: "{{ disk.parted.disks | subelements('partitions') }}"

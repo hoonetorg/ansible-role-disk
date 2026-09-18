@@ -1,0 +1,27 @@
+---
+- name: Create LUKS containers
+  community.crypto.luks_device:
+    device: "{{ item.device }}"
+    name: "{{ item.name }}"
+    passphrase: "{{ item.cryptpw }}"
+    state: present
+    type: "luks2"
+  loop: "{{ disk.luks.devices | default([]) }}"
+
+- name: Open LUKS containers
+  community.crypto.luks_device:
+    device: "{{ item.device }}"
+    name: "{{ item.name }}"
+    passphrase: "{{ item.cryptpw }}"
+    state: opened
+    type: "luks2"
+  loop: "{{ disk.luks.devices | default([]) }}"
+
+- name: Write crypttab
+  community.general.crypttab:
+    name: "{{ item.name }}"
+    backing_device: "{{ item.device }}"
+    password: "none"
+    opts: "luks,discard"
+    state: present
+  loop: "{{ disk.luks.devices | default([]) }}"

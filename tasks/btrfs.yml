@@ -1,0 +1,30 @@
+---
+- name: Create Btrfs filesystems
+  community.general.filesystem:
+    fstype: btrfs
+    dev: "{{ item.device }}"
+    opts: "{{ '-L ' ~ item.label if item.label is defined else omit }}"
+  loop: "{{ disk.btrfs.filesystems | default([]) }}"
+
+- name: Create Btrfs subvolumes
+  community.general.btrfs_subvolume:
+    filesystem_label: "{{ item.0.label }}"
+    name: "{{ item.1.name }}"
+    state: "{{ item.1.state | default('present') }}"
+    automount: true
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'subvolumes', {'skip_missing': True}) }}"
+
+- name: Create mountpoint directories
+  ansible.builtin.file:
+    path: "{{ item.1.path }}"
+    state: directory
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"
+
+- name: Mount Btrfs subvolumes
+  ansible.posix.mount:
+    path: "{{ item.1.path }}"
+    src: "{{ item.0.device }}"
+    fstype: btrfs
+    opts: "subvol={{ item.1.subvol }},{{ item.1.opts | default('defaults') }}"
+    state: mounted
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"

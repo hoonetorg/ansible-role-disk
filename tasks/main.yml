@@ -1,0 +1,3 @@
+- ansible.builtin.include_tasks: parted.yml
+- ansible.builtin.include_tasks: luks.yml
+- ansible.builtin.include_tasks: btrfs.yml
