@@ -1,0 +1,62 @@
+---
+# effective removable flag per device path (parted disks, LUKS backing devices, LUKS mappers, btrfs devices):
+#   parted disk:  its own removable (default false)
+#   LUKS device:  its own removable, else inherited from the parted disk "<disk>-part<N>"
+#   btrfs device: its own removable, else inherited from the LUKS device of "/dev/mapper/<name>"
+- name: Removable flags of parted disks
+  ansible.builtin.set_fact:
+    disk_removable: "{{ disk_removable | combine({item.device: item.removable | default(false) | bool}) }}"
+  loop: "{{ disk.parted.disks | default([]) }}"
+  loop_control:
+    label: "{{ item.device }}"
+
+- name: Removable flags of LUKS devices
+  ansible.builtin.set_fact:
+    disk_removable: >-
+      {{ disk_removable | combine({item.device: removable, '/dev/mapper/' ~ item.name: removable}) }}
+  vars:
+    removable: "{{ item.removable | default(disk_removable[item.device | regex_replace('-part[0-9]+$', '')] | default(false)) | bool }}"
+  loop: "{{ disk.luks.devices | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Removable flags of btrfs filesystems
+  ansible.builtin.set_fact:
+    disk_removable: "{{ disk_removable | combine({item.device: item.removable | default(disk_removable[item.device] | default(false)) | bool}) }}"
+  loop: "{{ disk.btrfs.filesystems | default([]) }}"
+  loop_control:
+    label: "{{ item.device }}"
+
+# a removable device must neither block the boot when missing nor be unlocked/mounted at boot
+- name: Assert boot-safe crypttab options of removable LUKS devices
+  ansible.builtin.assert:
+    that:
+      - "'noauto' in opts"
+      - "'nofail' in opts"
+    fail_msg: >-
+      {{ item.name }} is removable: crypttab_opts must contain noauto and nofail
+      (without nofail boot waits/fails when the disk is missing, without noauto it is unlocked at boot)
+    quiet: true
+  vars:
+    opts: "{{ (item.crypttab_opts | default('luks,discard')).split(',') }}"
+  loop: "{{ disk.luks.devices | default([]) }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: disk_removable[item.device]
+
+- name: Assert boot-safe fstab options of removable btrfs filesystems
+  ansible.builtin.assert:
+    that:
+      - "'noauto' in opts"
+      - "'nofail' in opts"
+      - "item.1.state | default('mounted') == 'present'"
+    fail_msg: >-
+      {{ item.1.path }} is on removable {{ item.0.device }}: mount opts must contain noauto and nofail
+      and state must be present (fstab entry only)
+    quiet: true
+  vars:
+    opts: "{{ (item.1.opts | default('defaults')).split(',') }}"
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"
+  loop_control:
+    label: "{{ item.1.path }}"
+  when: disk_removable[item.0.device]

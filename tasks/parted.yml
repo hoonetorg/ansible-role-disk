@@ -1,4 +1,11 @@
 ---
+- name: Check parted disks
+  ansible.builtin.include_tasks: check_present.yml
+  vars:
+    disk_check_stage: parted
+    disk_check_devices: "{{ disk.parted.disks | default([]) | map(attribute='device') | list }}"
+    disk_check_strict_in_check_mode: true
+
 - name: Create partitions
   community.general.parted:
     device: "{{ item.0.device }}"
@@ -10,4 +17,5 @@
     state: "{{ item.1.state | default('present') }}"
     label: "gpt"
     resize: false
-  loop: "{{ disk.parted.disks | subelements('partitions') }}"
+  loop: "{{ disk.parted.disks | default([]) | subelements('partitions') }}"
+  when: item.0.device not in disk_absent_devices

@@ -1,0 +1,49 @@
+---
+# input:
+#   disk_check_stage:   label (parted, luks, btrfs)
+#   disk_check_devices: device paths that must be present unless removable (see validate.yml)
+#   disk_check_strict_in_check_mode: fail on missing non-removable devices also in check mode
+#     (false for later stages: partitions/mappers are not created in check mode)
+# output: missing removable devices are appended to disk_absent_devices
+- name: "{{ disk_check_stage }}: check devices are present"
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true   # by-id and mapper paths are symlinks
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop: "{{ disk_check_devices }}"
+  register: disk_check_stat
+
+- name: "{{ disk_check_stage }}: fail on missing non-removable devices"
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isblk
+    fail_msg: "{{ disk_check_stage }}: {{ item.item }} is missing (or no block device) and not marked removable"
+    quiet: true
+  loop: "{{ disk_check_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - not disk_removable[item.item] | default(false)
+    - not ansible_check_mode or disk_check_strict_in_check_mode | default(false)
+
+- name: "{{ disk_check_stage }}: skip missing removable devices"
+  ansible.builtin.debug:
+    msg: >-
+      {{ disk_check_stage }}: {{ item.item }}
+      {{ 'not connected' if disk_removable[item.item] | default(false) else 'not present yet (check mode)' }}
+      - provisioning skipped (crypttab/fstab are still written)
+  loop: "{{ disk_check_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not (item.stat.exists and item.stat.isblk)
+
+- name: "{{ disk_check_stage }}: remember missing removable devices"
+  ansible.builtin.set_fact:
+    disk_absent_devices: "{{ disk_absent_devices + [item.item] }}"
+  loop: "{{ disk_check_stat.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: not (item.stat.exists and item.stat.isblk)

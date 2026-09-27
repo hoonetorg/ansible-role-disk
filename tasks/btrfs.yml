@@ -1,19 +1,69 @@
 ---
+# after LUKS open: mappers of skipped (missing removable) LUKS devices are missing and inherit removable
+- name: Check btrfs devices
+  ansible.builtin.include_tasks: check_present.yml
+  vars:
+    disk_check_stage: btrfs
+    disk_check_devices: "{{ disk.btrfs.filesystems | default([]) | map(attribute='device') | list }}"
+
 - name: Create Btrfs filesystems
   community.general.filesystem:
     fstype: btrfs
     dev: "{{ item.device }}"
     opts: "{{ '-L ' ~ item.label if item.label is defined else omit }}"
   loop: "{{ disk.btrfs.filesystems | default([]) }}"
+  when: item.device not in disk_absent_devices
 
+# sorted by name: parents (/parent) are created before children (/parent/child)
+# and children are removed before parents; names must start with /
 - name: Create Btrfs subvolumes
   community.general.btrfs_subvolume:
     filesystem_label: "{{ item.0.label }}"
     name: "{{ item.1.name }}"
-    state: "{{ item.1.state | default('present') }}"
+    state: present
     automount: true
-  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'subvolumes', {'skip_missing': True}) }}"
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'subvolumes', {'skip_missing': True}) | sort(attribute='1.name') }}"
+  loop_control:
+    label: "{{ item.0.label }}:{{ item.1.name }}"
+  when:
+    - item.0.device not in disk_absent_devices
+    - item.1.state | default('present') == 'present'
 
+- name: Remove Btrfs subvolumes
+  community.general.btrfs_subvolume:
+    filesystem_label: "{{ item.0.label }}"
+    name: "{{ item.1.name }}"
+    state: absent
+    automount: true
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'subvolumes', {'skip_missing': True}) | sort(attribute='1.name', reverse=true) }}"
+  loop_control:
+    label: "{{ item.0.label }}:{{ item.1.name }}"
+  when:
+    - item.0.device not in disk_absent_devices
+    - item.1.state | default('present') == 'absent'
+
+- name: Set owner/group/mode of Btrfs subvolumes
+  ansible.builtin.include_tasks: subvolume_owner.yml
+  vars:
+    # present subvolumes of this filesystem with owner, group or mode
+    disk_owner_subvolumes: >-
+      {{ ((disk_fs.subvolumes | default([]) | selectattr('owner', 'defined') | list)
+          + (disk_fs.subvolumes | default([]) | selectattr('group', 'defined') | list)
+          + (disk_fs.subvolumes | default([]) | selectattr('mode', 'defined') | list))
+         | unique
+         | reject('in', disk_fs.subvolumes | default([]) | selectattr('state', 'defined') | selectattr('state', 'eq', 'absent') | list)
+         | list }}
+    disk_owner_mnt: "/run/ansible-disk/{{ disk_fs.label | default(disk_fs.device | basename) }}"
+  loop: "{{ disk.btrfs.filesystems | default([]) }}"
+  loop_control:
+    loop_var: disk_fs
+    label: "{{ disk_fs.device }}"
+  when:
+    - not ansible_check_mode
+    - disk_fs.device not in disk_absent_devices
+    - disk_owner_subvolumes | length > 0
+
+# configuration: mountpoints and fstab are written also for missing removable devices
 - name: Create mountpoint directories
   ansible.builtin.file:
     path: "{{ item.1.path }}"
@@ -26,5 +76,7 @@
     src: "{{ item.0.device }}"
     fstype: btrfs
     opts: "subvol={{ item.1.subvol }},{{ item.1.opts | default('defaults') }}"
-    state: mounted
+    # present: fstab entry only (e.g. noauto backup disks)
+    state: "{{ item.1.state | default('mounted') }}"
   loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"
+  notify: disk daemon-reload

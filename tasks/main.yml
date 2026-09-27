@@ -1,3 +1,10 @@
+- name: Initialize disk facts
+  ansible.builtin.set_fact:
+    disk_removable: {}
+    disk_absent_devices: []
+
+- ansible.builtin.include_tasks: validate.yml
 - ansible.builtin.include_tasks: parted.yml
 - ansible.builtin.include_tasks: luks.yml
 - ansible.builtin.include_tasks: btrfs.yml
+- ansible.builtin.include_tasks: luks_close.yml

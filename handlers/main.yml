@@ -1,0 +1,5 @@
+---
+# let systemd generators pick up crypttab/fstab changes (mount and cryptsetup units)
+- name: disk daemon-reload
+  ansible.builtin.systemd_service:
+    daemon_reload: true

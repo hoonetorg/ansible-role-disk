@@ -1,0 +1,38 @@
+---
+# input: disk_fs (btrfs filesystem entry), disk_owner_subvolumes (its subvolumes with owner/group/mode)
+# the top level (subvolid=5) is mounted temporarily without touching fstab, so the temp mount
+# itself is not reported as change
+- name: "Create temporary mountpoint for {{ disk_fs.device }}"
+  ansible.builtin.file:
+    path: "{{ disk_owner_mnt }}"
+    state: directory
+    mode: "0700"
+  changed_when: false
+
+- name: "Set owner/group/mode of subvolumes on {{ disk_fs.device }}"
+  block:
+    - name: "Mount top level of {{ disk_fs.device }} temporarily"
+      ansible.posix.mount:
+        path: "{{ disk_owner_mnt }}"
+        src: "{{ disk_fs.device }}"
+        fstype: btrfs
+        opts: subvolid=5
+        state: ephemeral
+      changed_when: false
+
+    - name: "Set owner/group/mode of subvolumes on {{ disk_fs.device }}"
+      ansible.builtin.file:
+        path: "{{ disk_owner_mnt }}/{{ item.name | trim('/') }}"
+        state: directory
+        owner: "{{ item.owner | default(omit) }}"
+        group: "{{ item.group | default(omit) }}"
+        mode: "{{ item.mode | default(omit) }}"
+      loop: "{{ disk_owner_subvolumes }}"
+      loop_control:
+        label: "{{ item.name }}"
+  always:
+    - name: "Unmount top level of {{ disk_fs.device }}"
+      ansible.posix.mount:
+        path: "{{ disk_owner_mnt }}"
+        state: unmounted
+      changed_when: false

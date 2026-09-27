@@ -1,0 +1,15 @@
+---
+# close devices with close: true that were opened by this run only;
+# a device that was open before (e.g. a running backup) or is not connected is left untouched
+- name: Close temporarily opened LUKS containers
+  community.crypto.luks_device:
+    name: "{{ item.item.name }}"
+    state: closed
+  loop: "{{ disk_luks_open_before.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  when:
+    - item.item.close | default(false)
+    - item.item.device not in disk_absent_devices
+    - not (item.stat.exists | default(true))
+  changed_when: false

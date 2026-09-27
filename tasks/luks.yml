@@ -1,4 +1,11 @@
 ---
+# after parted: LUKS devices on new partitions exist now
+- name: Check LUKS devices
+  ansible.builtin.include_tasks: check_present.yml
+  vars:
+    disk_check_stage: luks
+    disk_check_devices: "{{ disk.luks.devices | default([]) | map(attribute='device') | list }}"
+
 - name: Create LUKS containers
   community.crypto.luks_device:
     device: "{{ item.device }}"
@@ -7,6 +14,16 @@
     state: present
     type: "luks2"
   loop: "{{ disk.luks.devices | default([]) }}"
+  when: item.device not in disk_absent_devices
+
+# devices with close: true (e.g. backup disks) are only opened temporarily and closed
+# again in luks_close.yml if they were not open before, so the open is not reported as change
+- name: Check which LUKS containers are open already
+  ansible.builtin.stat:
+    path: "/dev/mapper/{{ item.name }}"
+  loop: "{{ disk.luks.devices | default([]) }}"
+  register: disk_luks_open_before
+  when: item.device not in disk_absent_devices
 
 - name: Open LUKS containers
   community.crypto.luks_device:
@@ -16,12 +33,17 @@
     state: opened
     type: "luks2"
   loop: "{{ disk.luks.devices | default([]) }}"
+  register: disk_luks_opened
+  changed_when: disk_luks_opened.changed and not (item.close | default(false))
+  when: item.device not in disk_absent_devices
 
+# configuration: written also for missing removable devices
 - name: Write crypttab
   community.general.crypttab:
     name: "{{ item.name }}"
     backing_device: "{{ item.device }}"
     password: "none"
-    opts: "luks,discard"
+    opts: "{{ item.crypttab_opts | default('luks,discard') }}"
     state: present
   loop: "{{ disk.luks.devices | default([]) }}"
+  notify: disk daemon-reload
