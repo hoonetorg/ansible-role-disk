@@ -92,7 +92,7 @@ disk:
       - device: /dev/mapper/backup_a
         label: backup-a
         subvolumes:
-          - name: "/{{ inventory_hostname }}"
+          - name: "/{{ inventory_hostname_short }}"
         mounts:
           - path: /mnt/backup-a
             subvol: "/"
