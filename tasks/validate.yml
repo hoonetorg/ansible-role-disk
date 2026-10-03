@@ -16,7 +16,7 @@
       {{ disk_removable | combine({item.device: removable, '/dev/mapper/' ~ item.name: removable}) }}
   vars:
     removable: "{{ item.removable | default(disk_removable[item.device | regex_replace('-part[0-9]+$', '')] | default(false)) | bool }}"
-  loop: "{{ disk.luks.devices | default([]) }}"
+  loop: "{{ disk_luks_devices }}"
   loop_control:
     label: "{{ item.name }}"
 
@@ -39,7 +39,7 @@
     quiet: true
   vars:
     opts: "{{ (item.crypttab_opts | default('luks,discard')).split(',') }}"
-  loop: "{{ disk.luks.devices | default([]) }}"
+  loop: "{{ disk_luks_devices }}"
   loop_control:
     label: "{{ item.name }}"
   when: disk_removable[item.device]

@@ -1,19 +1,23 @@
 ---
 # after parted: LUKS devices on new partitions exist now
+# loops use disk_luks_devices (without passphrase, see main.yml); the passphrase is looked up by name and passed
+# only to the module parameter, which luks_device masks in its logged arguments
 - name: Check LUKS devices
   ansible.builtin.include_tasks: check_present.yml
   vars:
     disk_check_stage: luks
-    disk_check_devices: "{{ disk.luks.devices | default([]) | map(attribute='device') | list }}"
+    disk_check_devices: "{{ disk_luks_devices | map(attribute='device') | list }}"
 
 - name: Create LUKS containers
   community.crypto.luks_device:
     device: "{{ item.device }}"
     name: "{{ item.name }}"
-    passphrase: "{{ item.cryptpw }}"
+    passphrase: "{{ (disk.luks.devices | selectattr('name', 'equalto', item.name) | first).cryptpw }}"
     state: present
     type: "luks2"
-  loop: "{{ disk.luks.devices | default([]) }}"
+  loop: "{{ disk_luks_devices }}"
+  loop_control:
+    label: "{{ item.name }}"
   when: item.device not in disk_absent_devices
 
 # devices with close: true (e.g. backup disks) are only opened temporarily and closed
@@ -21,7 +25,9 @@
 - name: Check which LUKS containers are open already
   ansible.builtin.stat:
     path: "/dev/mapper/{{ item.name }}"
-  loop: "{{ disk.luks.devices | default([]) }}"
+  loop: "{{ disk_luks_devices }}"
+  loop_control:
+    label: "{{ item.name }}"
   register: disk_luks_open_before
   when: item.device not in disk_absent_devices
 
@@ -29,10 +35,12 @@
   community.crypto.luks_device:
     device: "{{ item.device }}"
     name: "{{ item.name }}"
-    passphrase: "{{ item.cryptpw }}"
+    passphrase: "{{ (disk.luks.devices | selectattr('name', 'equalto', item.name) | first).cryptpw }}"
     state: opened
     type: "luks2"
-  loop: "{{ disk.luks.devices | default([]) }}"
+  loop: "{{ disk_luks_devices }}"
+  loop_control:
+    label: "{{ item.name }}"
   register: disk_luks_opened
   changed_when: disk_luks_opened.changed and not (item.close | default(false))
   when: item.device not in disk_absent_devices
@@ -45,5 +53,7 @@
     password: "none"
     opts: "{{ item.crypttab_opts | default('luks,discard') }}"
     state: present
-  loop: "{{ disk.luks.devices | default([]) }}"
+  loop: "{{ disk_luks_devices }}"
+  loop_control:
+    label: "{{ item.name }}"
   notify: disk daemon-reload

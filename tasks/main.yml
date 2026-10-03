@@ -2,6 +2,11 @@
   ansible.builtin.set_fact:
     disk_removable: {}
     disk_absent_devices: []
+    # LUKS devices without the passphrase: loops run over this list, so the secret never becomes part of a
+    # loop item (items are logged in plain text); tasks look the passphrase up by name
+    disk_luks_devices: >-
+      {{ disk.luks.devices | default([]) | map('dict2items')
+         | map('rejectattr', 'key', 'equalto', 'cryptpw') | map('items2dict') | list }}
 
 - ansible.builtin.include_tasks: validate.yml
 - ansible.builtin.include_tasks: parted.yml
