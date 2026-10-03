@@ -6,6 +6,16 @@
     disk_check_devices: "{{ disk.parted.disks | default([]) | map(attribute='device') | list }}"
     disk_check_strict_in_check_mode: true
 
+# stops before anything is written: foreign tables, data on unpartitioned disks, layout mismatches,
+# overlaps and leftovers where new partitions would start (see README.md)
+- name: Check partitioning safety
+  ansible.builtin.include_tasks: parted_check.yml
+  loop: "{{ disk.parted.disks | default([]) | rejectattr('device', 'in', disk_absent_devices) | list }}"
+  loop_control:
+    loop_var: disk_pdisk
+    label: "{{ disk_pdisk.device }}"
+
+# resize only happens with force_resize (checked above: grow into free space only)
 - name: Create partitions
   community.general.parted:
     device: "{{ item.0.device }}"
@@ -16,6 +26,29 @@
     flags: "{{ item.1.flags | default([]) }}"
     state: "{{ item.1.state | default('present') }}"
     label: "gpt"
-    resize: false
+    resize: "{{ item.1.force_resize | default(false) | bool }}"
   loop: "{{ disk.parted.disks | default([]) | subelements('partitions') }}"
   when: item.0.device not in disk_absent_devices
+  register: disk_parted_result
+
+# udev creates the partition device links asynchronously; the LUKS stage needs them
+- name: Wait for udev after partitioning
+  ansible.builtin.command:
+    cmd: udevadm settle
+  changed_when: false
+  when: disk_parted_result is changed
+
+- name: Wait for new partition devices
+  ansible.builtin.wait_for:
+    path: >-
+      {{ dev ~ ('-part' if dev.startswith('/dev/disk/') else ('p' if dev[-1] in '0123456789' else ''))
+         ~ item.item.1.number }}
+    timeout: 30
+  vars:
+    dev: "{{ item.item.0.device }}"
+  loop: "{{ disk_parted_result.results | default([]) | selectattr('changed', 'defined') | selectattr('changed') | list }}"
+  loop_control:
+    label: "{{ item.item.0.device }} #{{ item.item.1.number }}"
+  when:
+    - not ansible_check_mode
+    - item.item.1.state | default('present') == 'present'

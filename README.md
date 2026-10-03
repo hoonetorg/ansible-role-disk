@@ -36,6 +36,26 @@ disk:
 | `disk.btrfs.filesystems[].mounts[].state` | `mounted` | `present` writes the fstab entry only (for `noauto` mounts) |
 | `disk.btrfs.filesystems[].subvolumes[].owner` / `group` / `mode` | unset | ownership/permissions of the subvolume root; use numeric ids (the disk role runs before the user role) and quote the mode (`"0700"`) |
 | `removable` (on `parted.disks[]`, `luks.devices[]`, `btrfs.filesystems[]`) | inherited, else `false` | device may be missing, see below |
+| `disk.parted.disks[].partitions[].force_resize` | `false` | allow growing an existing partition (see Partitioning safety) |
+
+## Partitioning safety
+
+Before parted writes anything, every connected disk is checked; any violation stops the run and nothing is
+changed:
+
+- partition table: only GPT; a disk without partition table is only accepted if it is empty (no LUKS,
+  filesystem or other signature found by `blkid -p`); `msdos`, `loop` (filesystem directly on the disk), … stop
+- `start` / `end`: `<number><KiB|MiB|GiB|TiB|%>`; absolute values must be whole MiB; `%` values are compared
+  with ±1 MiB (parted aligns them, `100%` ends 1 MiB before the disk end because of the GPT backup header)
+- existing partition with the requested number: start and end must match; moving or shrinking is never done;
+  growing the end only with `force_resize: true` and only into free space directly behind the partition
+- new partition: must lie inside the disk, must not overlap any existing partition (also partitions not managed
+  by the inventory, e.g. another OS), and `blkid -p -O <start>` must find no leftover data (old LUKS header,
+  filesystem) at its start
+
+Values are compared in sectors (parted's MiB output is rounded). After a changed parted run the role waits for
+udev (`udevadm settle`) and for the new partition devices (`<disk>-partN` for `/dev/disk/by-*` paths,
+`<disk>pN` / `<disk>N` otherwise).
 
 ## Subvolumes
 

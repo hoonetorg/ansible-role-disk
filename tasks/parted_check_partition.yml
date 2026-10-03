@@ -1,0 +1,119 @@
+---
+# input: disk_pdisk, disk_ppart (requested partition), disk_psize / disk_pparts (MiB) from parted_check.yml
+# start/end: <number><KiB|MiB|GiB|TiB|%>; absolute values must be whole MiB, % values are compared with ±1 MiB
+# (parted aligns them, e.g. 100% ends 1 MiB before the disk end because of the GPT backup header)
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: parse start/end"
+  ansible.builtin.set_fact:
+    disk_pstart_raw: "{{ disk_ppart.start | string | regex_findall('^([0-9]+(?:[.][0-9]+)?)(KiB|MiB|GiB|TiB|%)$') }}"
+    disk_pend_raw: "{{ disk_ppart.end | string | regex_findall('^([0-9]+(?:[.][0-9]+)?)(KiB|MiB|GiB|TiB|%)$') }}"
+
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: supported units"
+  ansible.builtin.assert:
+    that:
+      - disk_pstart_raw | length == 1
+      - disk_pend_raw | length == 1
+    fail_msg: >-
+      {{ disk_pdisk.device }} partition {{ disk_ppart.number }}: start '{{ disk_ppart.start }}' / end
+      '{{ disk_ppart.end }}' must be <number><KiB|MiB|GiB|TiB|%>
+    quiet: true
+
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: requested range in MiB"
+  ansible.builtin.set_fact:
+    disk_preq_start_pct: "{{ s[1] == '%' }}"
+    disk_preq_end_pct: "{{ e[1] == '%' }}"
+    disk_preq_start: "{{ (s[0] | float) / 100 * (disk_psize | float) if s[1] == '%' else (s[0] | float) * factors[s[1]] }}"
+    disk_preq_end: "{{ (e[0] | float) / 100 * (disk_psize | float) if e[1] == '%' else (e[0] | float) * factors[e[1]] }}"
+    disk_pcur: "{{ disk_pparts | selectattr('num', 'equalto', disk_ppart.number | int) | first | default({}) }}"
+  vars:
+    s: "{{ disk_pstart_raw[0] }}"
+    e: "{{ disk_pend_raw[0] }}"
+    factors: { KiB: 0.0009765625, MiB: 1, GiB: 1024, TiB: 1048576 }
+
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: MiB alignment"
+  ansible.builtin.assert:
+    that:
+      - disk_preq_start_pct | bool or ((disk_preq_start | float) - (disk_preq_start | float | round)) | abs < 0.000001
+      - disk_preq_end_pct | bool or ((disk_preq_end | float) - (disk_preq_end | float | round)) | abs < 0.000001
+      - (disk_preq_start | float) < (disk_preq_end | float)
+    fail_msg: >-
+      {{ disk_pdisk.device }} partition {{ disk_ppart.number }}: start {{ disk_preq_start }} MiB / end
+      {{ disk_preq_end }} MiB must be whole MiB and start < end
+    quiet: true
+
+# existing partition: never move, never shrink, grow only with force_resize into free space behind it
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: existing partition start"
+  ansible.builtin.assert:
+    that: ((disk_pcur.begin | float) - (disk_preq_start | float)) | abs <= (1.0 if disk_preq_start_pct | bool else 0.0001)
+    fail_msg: >-
+      {{ disk_pdisk.device }} partition {{ disk_ppart.number }} exists with start {{ disk_pcur.begin }} MiB,
+      requested {{ disk_preq_start }} MiB - moving partitions is not supported, nothing changed
+    quiet: true
+  when: disk_pcur | length > 0
+
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: existing partition end"
+  ansible.builtin.assert:
+    that: end_ok or (force and grow and fits)
+    fail_msg: >-
+      {{ disk_pdisk.device }} partition {{ disk_ppart.number }} exists with end {{ disk_pcur.end }} MiB,
+      requested {{ req_end }} MiB -
+      {% if not force %}set force_resize: true to grow it
+      {%- elif not grow %}shrinking is not supported
+      {%- else %}growing would overlap the next partition / exceed the disk (limit {{ limit }} MiB){% endif %},
+      nothing changed
+    quiet: true
+  vars:
+    req_end: "{{ [disk_preq_end | float, (disk_psize | float) - 1] | min if disk_preq_end_pct | bool else disk_preq_end | float }}"
+    end_ok: "{{ ((disk_pcur.end | float) - (disk_preq_end | float)) | abs <= (1.0 if disk_preq_end_pct | bool else 0.0001) }}"
+    force: "{{ disk_ppart.force_resize | default(false) | bool }}"
+    grow: "{{ (req_end | float) > (disk_pcur.end | float) }}"
+    limit: >-
+      {{ disk_pparts | rejectattr('num', 'equalto', disk_ppart.number | int)
+         | selectattr('begin', 'ge', (disk_pcur.end | float) - 0.0001) | map(attribute='begin') | min
+         | default(disk_psize | float) }}
+    fits: "{{ (req_end | float) <= (limit | float) + 0.0001 }}"
+  when: disk_pcur | length > 0
+
+# new partition: inside the disk, no overlap with any existing partition (also ones not in the inventory)
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: new partition in free space"
+  ansible.builtin.assert:
+    that:
+      - (req_end | float) <= (disk_psize | float) + 0.0001
+      - overlapping | length == 0
+    fail_msg: >-
+      {{ disk_pdisk.device }} new partition {{ disk_ppart.number }} ({{ disk_preq_start }}-{{ req_end }} MiB)
+      {% if overlapping | length > 0 %}overlaps existing partition(s) {{ overlapping }}{% else %}exceeds the
+      disk size {{ disk_psize }} MiB{% endif %} - nothing changed
+    quiet: true
+  vars:
+    req_end: "{{ [disk_preq_end | float, (disk_psize | float) - 1] | min if disk_preq_end_pct | bool else disk_preq_end | float }}"
+    overlapping: >-
+      {{ disk_pparts | selectattr('begin', 'lt', (req_end | float) - 0.0001)
+         | selectattr('end', 'gt', (disk_preq_start | float) + 0.0001) | map(attribute='num') | list }}
+  when: disk_pcur | length == 0
+
+# leftovers of old partitions (LUKS header, filesystem) where the new partition starts
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: look for data at the new partition start"
+  ansible.builtin.command:
+    argv:
+      - blkid
+      - -p
+      - -o
+      - export
+      - -O
+      - "{{ ((disk_preq_start | float | round | int) * 1048576) | string }}"
+      - "{{ disk_pdisk.device }}"
+  register: disk_pblkid_part
+  changed_when: false
+  failed_when: disk_pblkid_part.rc not in [0, 2]
+  check_mode: false
+  when: disk_pcur | length == 0
+
+- name: "parted check {{ disk_pdisk.device }} #{{ disk_ppart.number }}: no data at the new partition start"
+  ansible.builtin.assert:
+    that: disk_pblkid_part.rc == 2
+    fail_msg: >-
+      {{ disk_pdisk.device }} new partition {{ disk_ppart.number }}: data found at
+      {{ disk_preq_start | float | round | int }} MiB ({{ disk_pblkid_part.stdout_lines | join(', ') }})
+      - nothing changed
+    quiet: true
+  when: disk_pcur | length == 0

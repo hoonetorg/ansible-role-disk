@@ -1,0 +1,63 @@
+---
+# safety checks before partitioning, per present disk (input: disk_pdisk = entry of disk.parted.disks):
+# never write a partition table over another one or over data, never touch existing partitions unexpectedly
+- name: "parted check {{ disk_pdisk.device }}: read partition table"
+  community.general.parted:
+    device: "{{ disk_pdisk.device }}"
+    state: info
+    unit: s
+  register: disk_pinfo
+  check_mode: false
+
+# sector values are exact, parted's MiB output is rounded; partition end = last sector + 1
+- name: "parted check {{ disk_pdisk.device }}: disk size and table"
+  ansible.builtin.set_fact:
+    disk_ptable: "{{ disk_pinfo.disk.table }}"
+    disk_pbs: "{{ disk_pinfo.disk.logical_block | int }}"
+    disk_psize: "{{ (disk_pinfo.disk.size | float) * (disk_pinfo.disk.logical_block | int) / 1048576 }}"
+    disk_pparts: []
+
+- name: "parted check {{ disk_pdisk.device }}: existing partitions in MiB"
+  ansible.builtin.set_fact:
+    disk_pparts: >-
+      {{ disk_pparts + [{'num': item.num | int,
+                         'begin': (item.begin | float) * (disk_pbs | int) / 1048576,
+                         'end': ((item.end | float) + 1) * (disk_pbs | int) / 1048576}] }}
+  loop: "{{ disk_pinfo.partitions }}"
+  loop_control:
+    label: "{{ item.num }}"
+
+- name: "parted check {{ disk_pdisk.device }}: GPT only"
+  ansible.builtin.assert:
+    that: disk_ptable in ['gpt', 'unknown']
+    fail_msg: >-
+      {{ disk_pdisk.device }}: partition table '{{ disk_ptable }}' found, only GPT is supported
+      ('loop' = filesystem directly on the disk) - nothing changed
+    quiet: true
+
+# blkid -p: rc 0 = signature found, rc 2 = nothing found
+- name: "parted check {{ disk_pdisk.device }}: look for data on a disk without partition table"
+  ansible.builtin.command:
+    argv: [blkid, -p, -o, export, "{{ disk_pdisk.device }}"]
+  register: disk_pblkid
+  changed_when: false
+  failed_when: disk_pblkid.rc not in [0, 2]
+  check_mode: false
+  when: disk_ptable == 'unknown'
+
+- name: "parted check {{ disk_pdisk.device }}: disk without partition table must be empty"
+  ansible.builtin.assert:
+    that: disk_pblkid.rc == 2
+    fail_msg: >-
+      {{ disk_pdisk.device }}: no partition table, but the disk contains data
+      ({{ disk_pblkid.stdout_lines | default([]) | join(', ') }}) - nothing changed
+    quiet: true
+  when: disk_ptable == 'unknown'
+
+- name: "parted check {{ disk_pdisk.device }}: requested partitions"
+  ansible.builtin.include_tasks: parted_check_partition.yml
+  loop: "{{ disk_pdisk.partitions | default([]) }}"
+  loop_control:
+    loop_var: disk_ppart
+    label: "{{ disk_ppart.number }}"
+  when: disk_ppart.state | default('present') == 'present'
