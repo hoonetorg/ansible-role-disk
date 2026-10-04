@@ -1,0 +1,34 @@
+---
+# input:
+#   disk_data_stage:   label (parted, luks, btrfs)
+#   disk_data_devices: devices that are about to be written (missing ones in disk_absent_devices are skipped)
+#   disk_data_type:    signature type that is kept as it is (crypto_LUKS, btrfs: the module opens/uses it);
+#                      empty: the device must be completely empty
+# a device is only written when it carries no signature at all (or only the requested type); anything else
+# stops the run before anything is written - the formatting tools are not relied on (luksFormat -q overwrites
+# everything). wipefs -n lists every signature (filesystems, LUKS, ZFS/RAID members, swap, partition tables
+# incl. GPT backup), blkid -p reports "nothing found" when it finds several filesystems
+- name: "{{ disk_data_stage }}: list signatures on devices"
+  ansible.builtin.command:
+    argv: [wipefs, --no-act, --json, "{{ item }}"]
+  loop: "{{ disk_data_devices | reject('in', disk_absent_devices) | list }}"
+  register: disk_data_probe
+  changed_when: false
+  check_mode: false
+
+- name: "{{ disk_data_stage }}: stop if a device contains data"
+  ansible.builtin.assert:
+    that: item.1 | reject('equalto', disk_data_type) | list | length == 0
+    fail_msg: >-
+      {{ disk_data_stage }}: {{ item.0 }} contains data ({{ item.1 | unique | join(', ') }}) - nothing changed;
+      if it is obsolete, remove it first (wipefs -a for every old partition, then for the device)
+    quiet: true
+  # [device, [signature types]]
+  loop: >-
+    {{ disk_data_probe.results | map(attribute='item')
+       | zip(disk_data_probe.results | map(attribute='stdout')
+             | map('default', '{}', true) | map('from_json')
+             | map(attribute='signatures', default=[]) | map('map', attribute='type') | map('list'))
+       | list }}
+  loop_control:
+    label: "{{ item.0 }}"

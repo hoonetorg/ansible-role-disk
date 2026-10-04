@@ -35,23 +35,12 @@
       ('loop' = filesystem directly on the disk) - nothing changed
     quiet: true
 
-# blkid -p: rc 0 = signature found, rc 2 = nothing found
-- name: "parted check {{ disk_pdisk.device }}: look for data on a disk without partition table"
-  ansible.builtin.command:
-    argv: [blkid, -p, -o, export, "{{ disk_pdisk.device }}"]
-  register: disk_pblkid
-  changed_when: false
-  failed_when: disk_pblkid.rc not in [0, 2]
-  check_mode: false
-  when: disk_ptable == 'unknown'
-
 - name: "parted check {{ disk_pdisk.device }}: disk without partition table must be empty"
-  ansible.builtin.assert:
-    that: disk_pblkid.rc == 2
-    fail_msg: >-
-      {{ disk_pdisk.device }}: no partition table, but the disk contains data
-      ({{ disk_pblkid.stdout_lines | default([]) | join(', ') }}) - nothing changed
-    quiet: true
+  ansible.builtin.include_tasks: check_data.yml
+  vars:
+    disk_data_stage: parted
+    disk_data_devices: ["{{ disk_pdisk.device }}"]
+    disk_data_type: ""
   when: disk_ptable == 'unknown'
 
 - name: "parted check {{ disk_pdisk.device }}: requested partitions"

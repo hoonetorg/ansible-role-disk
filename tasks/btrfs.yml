@@ -6,6 +6,14 @@
     disk_check_stage: btrfs
     disk_check_devices: "{{ disk.btrfs.filesystems | default([]) | map(attribute='device') | list }}"
 
+# only empty devices are formatted, existing btrfs filesystems are kept
+- name: Check btrfs devices for existing data
+  ansible.builtin.include_tasks: check_data.yml
+  vars:
+    disk_data_stage: btrfs
+    disk_data_devices: "{{ disk.btrfs.filesystems | default([]) | map(attribute='device') | list }}"
+    disk_data_type: btrfs
+
 - name: Create Btrfs filesystems
   community.general.filesystem:
     fstype: btrfs
