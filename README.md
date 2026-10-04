@@ -44,18 +44,37 @@ Before parted writes anything, every connected disk is checked; any violation st
 changed:
 
 - partition table: only GPT; a disk without partition table is only accepted if it is empty (no LUKS,
-  filesystem or other signature found by `blkid -p`); `msdos`, `loop` (filesystem directly on the disk), … stop
+  signature found by `wipefs`, see Formatting safety); `msdos`, `loop` (filesystem directly on the disk), … stop
 - `start` / `end`: `<number><KiB|MiB|GiB|TiB|%>`; absolute values must be whole MiB; `%` values are compared
   with ±1 MiB (parted aligns them, `100%` ends 1 MiB before the disk end because of the GPT backup header)
 - existing partition with the requested number: start and end must match; moving or shrinking is never done;
   growing the end only with `force_resize: true` and only into free space directly behind the partition
 - new partition: must lie inside the disk, must not overlap any existing partition (also partitions not managed
   by the inventory, e.g. another OS), and `blkid -p -O <start>` must find no leftover data (old LUKS header,
-  filesystem) at its start
+  filesystem) at its start (early check; `blkid` misses several signatures at one place, the final check is
+  `wipefs` on the new partition before it is formatted, see Formatting safety)
 
 Values are compared in sectors (parted's MiB output is rounded). After a changed parted run the role waits for
 udev (`udevadm settle`) and for the new partition devices (`<disk>-partN` for `/dev/disk/by-*` paths,
 `<disk>pN` / `<disk>N` otherwise).
+
+## Formatting safety (LUKS, btrfs)
+
+Before a LUKS container or a btrfs filesystem is created (and before a disk without partition table gets one),
+every connected device is probed with `wipefs --no-act`, which lists every signature on it (`blkid -p` reports
+"nothing found" when it finds several filesystems). The formatting tools are not relied on:
+`cryptsetup luksFormat -q` overwrites anything. Allowed are only:
+
+- an empty device (no signature found)
+- a device that already holds the requested type (`crypto_LUKS` resp. `btrfs`): it is opened/used, not formatted
+
+Anything else stops the run before anything is written: another filesystem, a ZFS/RAID member, swap, a
+partition table (e.g. LUKS directly on a disk that still has GPT partitions), or several signatures at once.
+Remove obsolete data yourself first, e.g. `wipefs -a <partition>` for every old partition, then
+`wipefs -a <disk>`.
+
+Limit: only data with a signature known to libblkid can be detected; content without one (e.g. the encrypted payload of a
+LUKS container whose header is gone) looks like free space.
 
 ## Subvolumes
 
@@ -122,6 +141,12 @@ disk:
 
 `systemctl start /mnt/backup-a` asks for the passphrase, opens and mounts;
 `systemctl stop systemd-cryptsetup@backup_a.service` unmounts and closes.
+
+## Tests
+
+`tests/run-container.sh` (safety checks on image files, ~1 min) and `tests/run-vm.sh` (the whole role in a
+throwaway Leap 16.1 VM: creation, idempotency and data-preservation scenarios, ~15 min); see
+[tests/README.md](tests/README.md).
 
 ## License
 
