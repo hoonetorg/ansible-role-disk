@@ -1,0 +1,7 @@
+---
+disk:
+  parted:
+    disks:
+      - device: /dev/disk/by-id/virtio-tdisk1
+        partitions:
+          - { number: 2, name: t-p2, start: 200MiB, end: 500MiB }

@@ -1,0 +1,10 @@
+---
+# the role under test with the scenario's vars.yml (-e @vars.yml); test_passphrase comes from the
+# environment and is unique per run, so the secrets check can search the logs for it
+- name: Apply ansible-role-disk
+  hosts: testvm
+  gather_facts: true
+  vars:
+    test_passphrase: "{{ lookup('ansible.builtin.env', 'TEST_PASSPHRASE') }}"
+  roles:
+    - role: ansible-role-disk

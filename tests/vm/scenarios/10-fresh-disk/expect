@@ -1,0 +1,2 @@
+# GPT with 2 partitions: btrfs directly on p1, LUKS + btrfs on p2, subvolumes, mounts
+RESULT=ok

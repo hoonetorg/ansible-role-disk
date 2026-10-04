@@ -1,0 +1,2 @@
+# existing partition with data grows into free space (force_resize), data intact
+RESULT=ok

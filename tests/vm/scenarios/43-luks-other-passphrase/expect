@@ -1,0 +1,4 @@
+# existing LUKS container with another passphrase: open fails, nothing is formatted
+RESULT=fail
+MSG='(No key available|passphrase|Error while opening)'
+PRESERVE="tdisk1"

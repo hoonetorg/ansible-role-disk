@@ -1,0 +1,4 @@
+# LUKS on a partition with two filesystems (blkid -p sees nothing)
+RESULT=fail
+MSG='contains data \(ext4, btrfs\)'
+PRESERVE="tdisk1"

@@ -1,0 +1,4 @@
+# new partition overlapping a partition not in the inventory
+RESULT=fail
+MSG='overlaps existing partition'
+PRESERVE="tdisk1"

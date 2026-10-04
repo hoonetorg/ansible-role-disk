@@ -1,0 +1,28 @@
+---
+disk:
+  parted:
+    disks:
+      - device: /dev/disk/by-id/virtio-tdisk1
+        partitions:
+          - { number: 1, name: t-plain, start: 1MiB, end: 512MiB }
+          - { number: 2, name: t-crypt, start: 512MiB, end: "100%" }
+  luks:
+    devices:
+      - device: /dev/disk/by-id/virtio-tdisk1-part2
+        name: t_crypt
+        cryptpw: "{{ test_passphrase }}"
+  btrfs:
+    filesystems:
+      - device: /dev/disk/by-id/virtio-tdisk1-part1
+        label: t-plain
+        subvolumes:
+          - { name: /data }
+        mounts:
+          - { path: /t/plain, subvol: /data }
+      - device: /dev/mapper/t_crypt
+        label: t-crypt
+        subvolumes:
+          - { name: /home }
+          - { name: /home/projects, state: absent }
+        mounts:
+          - { path: /t/home, subvol: /home, opts: "compress=zstd" }

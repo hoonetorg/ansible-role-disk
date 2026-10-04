@@ -1,0 +1,5 @@
+# second run of 17: nothing changes, closed again
+RESULT=ok
+KEEP=1
+VARS=17-backup-disk
+CHANGED=0

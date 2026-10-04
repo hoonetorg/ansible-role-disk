@@ -1,0 +1,120 @@
+---
+# tier 1 checks on image files (fixtures.sh): the safety checks of parted_check.yml and check_data.yml,
+# and the parted create/resize run with the module arguments of parted.yml
+- name: Disk role checks on image files
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    role_dir: /roles/ansible-role-disk
+    I: /img
+    case_report: []
+    p_std:
+      - { number: 1, name: data, start: 1MiB, end: 300MiB }
+      - { number: 2, name: rest, start: 300MiB, end: "100%" }
+    parted_cases:
+      - { name: blank-disk,            expect: pass, disk: { device: "{{ I }}/blank.img", partitions: "{{ p_std }}" } }
+      - { name: ext4-on-disk,          expect: fail, msg: "partition table 'loop'", disk: { device: "{{ I }}/ext4.img", partitions: "{{ p_std }}" } }
+      - { name: luks-on-disk,          expect: fail, msg: "contains data \\(crypto_LUKS\\)", disk: { device: "{{ I }}/luks.img", partitions: "{{ p_std }}" } }
+      - { name: mixed-on-disk,         expect: fail, msg: "contains data \\(ext4, btrfs\\)", disk: { device: "{{ I }}/mixed.img", partitions: "{{ p_std }}" } }
+      - { name: msdos-table,           expect: fail, msg: "partition table 'msdos'", disk: { device: "{{ I }}/msdos.img", partitions: "{{ p_std }}" } }
+      - { name: gpt-matches-100pct,    expect: pass, disk: { device: "{{ I }}/gpt2.img", partitions: "{{ p_std }}" } }
+      - { name: start-mismatch,        expect: fail, msg: "moving partitions is not supported", disk: { device: "{{ I }}/gpt2.img", partitions: [ { number: 1, name: data, start: 2MiB, end: 300MiB } ] } }
+      - { name: end-mismatch,          expect: fail, msg: "set force_resize: true to grow it", disk: { device: "{{ I }}/gpt1.img", partitions: [ { number: 1, name: data, start: 1MiB, end: 400MiB } ] } }
+      - { name: grow-force-free,       expect: pass, disk: { device: "{{ I }}/gpt1.img", partitions: [ { number: 1, name: data, start: 1MiB, end: 400MiB, force_resize: true } ] } }
+      - { name: grow-force-100pct,     expect: pass, disk: { device: "{{ I }}/gpt1.img", partitions: [ { number: 1, name: data, start: 1MiB, end: "100%", force_resize: true } ] } }
+      - { name: grow-into-next,        expect: fail, msg: "growing would overlap the next partition", disk: { device: "{{ I }}/gpt2.img", partitions: [ { number: 1, name: data, start: 1MiB, end: 400MiB, force_resize: true } ] } }
+      - { name: shrink-force,          expect: fail, msg: "shrinking is not supported", disk: { device: "{{ I }}/gpt1.img", partitions: [ { number: 1, name: data, start: 1MiB, end: 200MiB, force_resize: true } ] } }
+      - { name: new-overlapping,       expect: fail, msg: "overlaps existing partition", disk: { device: "{{ I }}/gpt1.img", partitions: [ { number: 2, name: x, start: 200MiB, end: 500MiB } ] } }
+      - { name: new-in-free-space,     expect: pass, disk: { device: "{{ I }}/gpt1.img", partitions: [ { number: 2, name: x, start: 300MiB, end: "100%" } ] } }
+      - { name: new-on-leftover-luks,  expect: fail, msg: "data found at 300 MiB", disk: { device: "{{ I }}/gpt1_left.img", partitions: [ { number: 2, name: x, start: 300MiB, end: "100%" } ] } }
+      - { name: unaligned-kib,         expect: fail, msg: "must be whole MiB", disk: { device: "{{ I }}/blank.img", partitions: [ { number: 1, name: x, start: 1000KiB, end: 300MiB } ] } }
+      - { name: bad-unit,              expect: fail, msg: "must be <number>", disk: { device: "{{ I }}/blank.img", partitions: [ { number: 1, name: x, start: 1M, end: 300MiB } ] } }
+      - { name: gib-and-pct,           expect: pass, disk: { device: "{{ I }}/blank.img", partitions: [ { number: 1, name: x, start: 1MiB, end: 0.5GiB }, { number: 2, name: y, start: 512MiB, end: "100%" } ] } }
+      - { name: check-mode-luks-disk,  expect: fail, msg: "contains data \\(crypto_LUKS\\)", check_mode: true, disk: { device: "{{ I }}/luks.img", partitions: "{{ p_std }}" } }
+    data_cases:
+      - { name: luks-empty-existing-missing, expect: pass, stage: luks, type: crypto_LUKS, devices: ["{{ I }}/blank.img", "{{ I }}/luks.img", "{{ I }}/missing.img"], absent: ["{{ I }}/missing.img"] }
+      - { name: luks-on-gpt,           expect: fail, msg: "contains data \\(gpt, PMBR\\)", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/gpt1.img"] }
+      - { name: luks-on-btrfs,         expect: fail, msg: "contains data \\(btrfs\\)", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/btrfs.img"] }
+      - { name: luks-on-ext4,          expect: fail, msg: "contains data \\(ext4\\)", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/ext4.img"] }
+      - { name: luks-on-swap,          expect: fail, msg: "contains data \\(swap\\)", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/swap.img"] }
+      - { name: luks-on-mixed,         expect: fail, msg: "contains data \\(ext4, btrfs\\)", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/mixed.img"] }
+      - { name: luks-second-dirty,     expect: fail, msg: "mixed.img contains data", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/blank.img", "{{ I }}/mixed.img"] }
+      - { name: btrfs-empty-existing,  expect: pass, stage: btrfs, type: btrfs, devices: ["{{ I }}/blank.img", "{{ I }}/btrfs.img"] }
+      - { name: btrfs-on-luks,         expect: fail, msg: "contains data \\(crypto_LUKS\\)", stage: btrfs, type: btrfs, devices: ["{{ I }}/luks.img"] }
+      - { name: btrfs-on-gpt,          expect: fail, msg: "contains data \\(gpt, PMBR\\)", stage: btrfs, type: btrfs, devices: ["{{ I }}/gpt1.img"] }
+      - { name: btrfs-on-mixed,        expect: fail, msg: "contains data \\(ext4, btrfs\\)", stage: btrfs, type: btrfs, devices: ["{{ I }}/mixed.img"] }
+      - { name: check-mode-luks-on-gpt, expect: fail, check_mode: true, msg: "contains data", stage: luks, type: crypto_LUKS, devices: ["{{ I }}/gpt1.img"] }
+      - { name: nothing-to-check,      expect: pass, stage: luks, type: crypto_LUKS, devices: [] }
+    e2e_disks:
+      - { device: "{{ I }}/e2e_new.img", partitions: "{{ p_std }}" }
+      - { device: "{{ I }}/e2e_grow.img", partitions: [ { number: 1, name: data, start: 1MiB, end: 400MiB, force_resize: true } ] }
+  tasks:
+    - name: parted_check.yml cases
+      ansible.builtin.include_tasks: case.yml
+      loop: "{{ parted_cases | map('combine', {'tasks': 'parted_check.yml'}) }}"
+      loop_control: { loop_var: case, label: "{{ case.name }}" }
+
+    - name: check_data.yml cases
+      ansible.builtin.include_tasks: case.yml
+      loop: "{{ data_cases | map('combine', {'tasks': 'check_data.yml'}) }}"
+      loop_control: { loop_var: case, label: "{{ case.name }}" }
+
+    # parted.yml flow on image files: checks, create/resize, again (idempotent), checks against the result
+    - name: e2e create/resize
+      block:
+        - name: e2e checks before
+          ansible.builtin.include_tasks: "{{ role_dir }}/tasks/parted_check.yml"
+          loop: "{{ e2e_disks }}"
+          loop_control: { loop_var: disk_pdisk }
+          vars: { disk_absent_devices: [] }
+        - name: e2e create / resize (module arguments as in parted.yml)
+          community.general.parted: &e2e_parted
+            device: "{{ item.0.device }}"
+            number: "{{ item.1.number }}"
+            name: "{{ item.1.name }}"
+            part_start: "{{ item.1.start }}"
+            part_end: "{{ item.1.end }}"
+            state: present
+            label: gpt
+            resize: "{{ item.1.force_resize | default(false) | bool }}"
+          loop: "{{ e2e_disks | subelements('partitions') }}"
+          register: e2e_run1
+        - name: e2e create / resize again
+          community.general.parted: *e2e_parted
+          loop: "{{ e2e_disks | subelements('partitions') }}"
+          register: e2e_run2
+        - name: e2e checks after (existing partitions must match)
+          ansible.builtin.include_tasks: "{{ role_dir }}/tasks/parted_check.yml"
+          loop: "{{ e2e_disks }}"
+          loop_control: { loop_var: disk_pdisk }
+          vars: { disk_absent_devices: [] }
+        - name: e2e expected changes
+          ansible.builtin.assert:
+            that:
+              - e2e_run1.results | map(attribute='changed') | list == [true, true, true]
+              - e2e_run2.results | map(attribute='changed') | list == [false, false, false]
+            quiet: true
+        - name: e2e passed
+          ansible.builtin.set_fact:
+            case_report: "{{ case_report + ['OK  e2e create 2 partitions + grow, rerun unchanged, checks pass afterwards'] }}"
+      rescue:
+        - name: e2e failed
+          ansible.builtin.set_fact:
+            case_report: "{{ case_report + ['BAD e2e create/resize: ' ~ ansible_failed_task.name ~ ' | ' ~ ansible_failed_result.msg | default('')] }}"
+
+    - name: Write summary
+      ansible.builtin.copy:
+        dest: /work/summary.txt
+        content: |
+          {% for line in case_report %}
+          {{ line }}
+          {% endfor %}
+          summary: {{ case_report | select('match', 'OK') | list | length }}/{{ case_report | length }} OK
+        mode: "0644"
+
+    - name: All cases OK
+      ansible.builtin.assert:
+        that: case_report | select('match', 'BAD') | list | length == 0
+        fail_msg: "{{ case_report | select('match', 'BAD') | list }}"
+        quiet: true

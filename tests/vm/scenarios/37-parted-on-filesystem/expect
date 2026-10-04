@@ -1,0 +1,4 @@
+# partitioning a disk with a filesystem directly on it
+RESULT=fail
+MSG='partition table .loop.'
+PRESERVE="tdisk1"

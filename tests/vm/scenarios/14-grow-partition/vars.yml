@@ -1,0 +1,7 @@
+---
+disk:
+  parted:
+    disks:
+      - device: /dev/disk/by-id/virtio-tdisk2
+        partitions:
+          - { number: 1, name: t-data, start: 1MiB, end: 768MiB, force_resize: true }

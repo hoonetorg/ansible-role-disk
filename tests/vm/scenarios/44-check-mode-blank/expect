@@ -1,0 +1,5 @@
+# check mode on blank disks with the full config: nothing is written
+RESULT=ok
+CHECK_MODE=1
+VARS=10-fresh-disk
+PRESERVE="tdisk1"

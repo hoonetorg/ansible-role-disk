@@ -1,0 +1,11 @@
+# test image for ansible-role-disk: ansible controller (same Debian ansible as the nsbldr container),
+# disk tools for the image-file checks and qemu for the VM tests
+FROM docker.io/library/debian:trixie
+RUN apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      ansible python3-xmltodict openssh-client ca-certificates curl \
+      parted cryptsetup-bin btrfs-progs e2fsprogs util-linux fdisk \
+      qemu-system-x86 qemu-utils xorriso \
+ && rm -rf /var/lib/apt/lists/* \
+ && printf '#!/bin/sh\n# no udev in the container (parted calls udevadm settle)\nexit 0\n' > /usr/local/bin/udevadm \
+ && chmod +x /usr/local/bin/udevadm

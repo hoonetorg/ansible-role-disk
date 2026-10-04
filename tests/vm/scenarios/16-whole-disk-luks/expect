@@ -1,0 +1,2 @@
+# LUKS directly on a blank disk (no partition table) + btrfs
+RESULT=ok

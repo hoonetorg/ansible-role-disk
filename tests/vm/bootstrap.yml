@@ -1,0 +1,18 @@
+---
+- name: Prepare the test VM
+  hosts: testvm
+  gather_facts: false
+  tasks:
+    - name: Wait for ssh
+      ansible.builtin.wait_for_connection:
+        timeout: 900
+
+    - name: Wait for cloud-init (zypper must not be locked)
+      ansible.builtin.command: cloud-init status --wait
+      changed_when: false
+      failed_when: false
+
+    - name: Install disk tools
+      ansible.builtin.package:
+        name: [parted, cryptsetup, btrfsprogs, e2fsprogs, util-linux]
+        state: present

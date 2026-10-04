@@ -1,0 +1,6 @@
+# check mode on the provisioned disk: nothing would change
+RESULT=ok
+KEEP=1
+VARS=10-fresh-disk
+CHECK_MODE=1
+CHANGED=0

@@ -1,0 +1,4 @@
+# LUKS on a partition with ext4
+RESULT=fail
+MSG='luks: .*contains data \(ext4\)'
+PRESERVE="tdisk1"

@@ -1,0 +1,21 @@
+---
+disk:
+  luks:
+    devices:
+      - device: /dev/disk/by-id/virtio-tdisk9
+        name: t_gone
+        cryptpw: "{{ test_passphrase }}"
+        crypttab_opts: "luks,discard,noauto,nofail"
+        close: true
+        removable: true
+  btrfs:
+    filesystems:
+      - device: /dev/mapper/t_gone
+        label: t-gone
+        subvolumes:
+          - { name: /host1 }
+        mounts:
+          - path: /t/gone
+            subvol: "/"
+            state: present
+            opts: "noauto,nofail,x-systemd.requires=systemd-cryptsetup@t_gone.service"

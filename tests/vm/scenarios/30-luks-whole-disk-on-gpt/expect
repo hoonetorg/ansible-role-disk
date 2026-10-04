@@ -1,0 +1,4 @@
+# LUKS on a whole disk that still has GPT partitions with filesystems (old ZFS disk case)
+RESULT=fail
+MSG='virtio-tdisk1 contains data \(gpt, PMBR\)'
+PRESERVE="tdisk1"

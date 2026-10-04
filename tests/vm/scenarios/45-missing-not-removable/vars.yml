@@ -1,0 +1,8 @@
+---
+disk:
+  luks:
+    devices:
+      - { device: /dev/disk/by-id/virtio-tdisk9, name: t_x, cryptpw: "{{ test_passphrase }}" }
+  btrfs:
+    filesystems:
+      - { device: /dev/mapper/t_x, label: t-x }

@@ -1,0 +1,5 @@
+# second run of 10: nothing changes, data intact
+RESULT=ok
+KEEP=1
+VARS=10-fresh-disk
+CHANGED=0

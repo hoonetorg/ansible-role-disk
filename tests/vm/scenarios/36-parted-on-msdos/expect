@@ -1,0 +1,4 @@
+# partitioning a disk with an msdos table
+RESULT=fail
+MSG='partition table .msdos.'
+PRESERVE="tdisk1"

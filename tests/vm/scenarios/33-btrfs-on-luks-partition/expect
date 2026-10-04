@@ -1,0 +1,4 @@
+# btrfs directly on a LUKS partition (layering mistake)
+RESULT=fail
+MSG='btrfs: .*contains data \(crypto_LUKS\)'
+PRESERVE="tdisk1"

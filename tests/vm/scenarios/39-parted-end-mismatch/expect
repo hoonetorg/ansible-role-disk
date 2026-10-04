@@ -1,0 +1,4 @@
+# existing partition ends elsewhere, no force_resize
+RESULT=fail
+MSG='set force_resize: true to grow it'
+PRESERVE="tdisk1"

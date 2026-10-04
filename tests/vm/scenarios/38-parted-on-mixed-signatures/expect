@@ -1,0 +1,5 @@
+# partitioning an unpartitioned disk with two filesystems; depending on the parted version parted itself
+# reports the btrfs ("loop") or sees nothing and the wipefs check stops
+RESULT=fail
+MSG="(partition table 'loop'|parted: .*contains data \(ext4, btrfs\))"
+PRESERVE="tdisk1"

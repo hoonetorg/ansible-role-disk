@@ -1,0 +1,3 @@
+# explicit state: absent removes the subvolume, the rest stays
+RESULT=ok
+KEEP=1

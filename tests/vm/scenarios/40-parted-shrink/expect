@@ -1,0 +1,4 @@
+# shrinking is never done, also not with force_resize
+RESULT=fail
+MSG='shrinking is not supported'
+PRESERVE="tdisk1"

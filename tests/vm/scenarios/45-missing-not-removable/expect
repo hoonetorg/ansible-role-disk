@@ -1,0 +1,3 @@
+# missing disk that is not marked removable
+RESULT=fail
+MSG='is missing'

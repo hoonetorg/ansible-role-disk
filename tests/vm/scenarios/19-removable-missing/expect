@@ -1,0 +1,3 @@
+# removable disk not connected: provisioning skipped, configuration written
+RESULT=ok
+MSG='not connected - provisioning skipped'

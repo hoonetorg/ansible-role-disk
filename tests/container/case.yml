@@ -1,0 +1,38 @@
+---
+# one check case: runs a task file of the role and compares the outcome with the expectation
+# case: {name, tasks: parted_check.yml|check_data.yml, expect: pass|fail, msg: <regex, optional>,
+#        check_mode: bool, disk: {...} (parted_check), stage/devices/type/absent (check_data)}
+- name: "case {{ case.name }}"
+  block:
+    - name: "case {{ case.name }}: run {{ case.tasks }}"
+      ansible.builtin.include_tasks:
+        file: "{{ role_dir }}/tasks/{{ case.tasks }}"
+        apply:
+          check_mode: "{{ case.check_mode | default(false) }}"
+      vars:
+        disk_pdisk: "{{ case.disk | default({}) }}"
+        disk_data_stage: "{{ case.stage | default('') }}"
+        disk_data_devices: "{{ case.devices | default([]) }}"
+        disk_data_type: "{{ case.type | default('') }}"
+        disk_absent_devices: "{{ case.absent | default([]) }}"
+    - name: "case {{ case.name }}: passed"
+      ansible.builtin.set_fact:
+        case_got: pass
+        case_msg: ""
+  rescue:
+    - name: "case {{ case.name }}: failed"
+      ansible.builtin.set_fact:
+        case_got: fail
+        # a failed loop reports "One or more items failed": use the messages of the failed items
+        case_msg: >-
+          {{ ansible_failed_result.results | default([]) | selectattr('failed', 'defined') | selectattr('failed')
+             | map(attribute='msg') | join('; ') or ansible_failed_result.msg | default('') }}
+
+- name: "case {{ case.name }}: record"
+  ansible.builtin.set_fact:
+    case_report: "{{ case_report + [line] }}"
+  vars:
+    good: "{{ case_got == case.expect and (case.msg is not defined or case_msg is search(case.msg)) }}"
+    line: >-
+      {{ 'OK ' if good else 'BAD' }} {{ case.tasks | replace('.yml', '') }} {{ case.name }}:
+      expect={{ case.expect }} got={{ case_got }}{{ (' | ' ~ case_msg) if case_msg else '' }}

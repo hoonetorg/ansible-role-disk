@@ -1,0 +1,21 @@
+---
+disk:
+  luks:
+    devices:
+      - device: /dev/disk/by-id/virtio-tdisk3
+        name: t_backup
+        cryptpw: "{{ test_passphrase }}"
+        crypttab_opts: "luks,discard,noauto,nofail"
+        close: true
+        removable: true
+  btrfs:
+    filesystems:
+      - device: /dev/mapper/t_backup
+        label: t-backup
+        subvolumes:
+          - { name: /host1 }
+        mounts:
+          - path: /t/backup
+            subvol: "/"
+            state: present
+            opts: "noauto,nofail,x-systemd.requires=systemd-cryptsetup@t_backup.service"

@@ -1,0 +1,4 @@
+# LUKS on a swap partition
+RESULT=fail
+MSG='contains data \(swap\)'
+PRESERVE="tdisk1"

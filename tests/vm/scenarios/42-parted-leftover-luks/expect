@@ -1,0 +1,4 @@
+# new partition where an old LUKS header is left in the free space
+RESULT=fail
+MSG='data found at 300 MiB'
+PRESERVE="tdisk1"
