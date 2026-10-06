@@ -103,6 +103,9 @@
           ansible.builtin.set_fact:
             case_report: "{{ case_report + ['BAD e2e create/resize: ' ~ ansible_failed_task.name ~ ' | ' ~ ansible_failed_result.msg | default('')] }}"
 
+    - name: mounts, migration, SELinux
+      ansible.builtin.include_tasks: mounts.yml
+
     - name: Write summary
       ansible.builtin.copy:
         dest: /work/summary.txt

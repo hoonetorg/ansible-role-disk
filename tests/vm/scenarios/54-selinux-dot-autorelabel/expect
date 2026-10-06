@@ -1,0 +1,7 @@
+# /.autorelabel (the trigger file of other distributions) works on Leap 16 too: the initrd relabels the root fs
+# and the generated per-mount units run; a deliberately wrong label below /t/home is repaired, the <<none>> rule
+# keeps the top-level view from interfering
+RESULT=ok
+KEEP=1
+VARS=50-selinux-labels
+REBOOT=1

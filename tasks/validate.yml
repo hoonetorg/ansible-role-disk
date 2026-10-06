@@ -60,3 +60,24 @@
   loop_control:
     label: "{{ item.1.path }}"
   when: disk_removable[item.0.device]
+
+- name: Assert mount options
+  ansible.builtin.assert:
+    that:
+      - item.1.path is match('/')
+      - item.1.subvol is defined
+      - not (item.1.migrate | default(false) | bool) or item.1.state | default('mounted') == 'mounted'
+      - item.1.migrate_stop | default([]) is sequence and item.1.migrate_stop | default([]) is not string
+    fail_msg: >-
+      mount {{ item.1.path | default('?') }}: path must be absolute, subvol is required, migrate needs
+      state: mounted, migrate_stop must be a list of units
+    quiet: true
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"
+  loop_control:
+    label: "{{ item.1.path | default('?') }}"
+
+- name: Assert disk.selinux
+  ansible.builtin.assert:
+    that: (disk.selinux | default('auto')) in ['auto', true, false]
+    fail_msg: "disk.selinux must be auto, true or false"
+    quiet: true

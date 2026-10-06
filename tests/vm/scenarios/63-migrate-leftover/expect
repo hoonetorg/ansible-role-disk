@@ -1,0 +1,4 @@
+# leftover of an earlier migration (/t/data.pre-ansible): stop, nothing changed
+RESULT=fail
+MSG='/t/data.pre-ansible exists'
+VARS=60-migrate

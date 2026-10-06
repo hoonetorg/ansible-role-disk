@@ -1,0 +1,6 @@
+# boot autorelabel (/etc/selinux/.autorelabel): relabel units for /t/top and /t/home run in parallel; with
+# the <<none>> rule the labels stay correct
+RESULT=ok
+KEEP=1
+VARS=50-selinux-labels
+REBOOT=1

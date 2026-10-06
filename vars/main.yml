@@ -1,0 +1,3 @@
+---
+# semanage (fcontext rules) and restorecon; same package names on openSUSE, Fedora/EL and Debian
+disk_selinux_packages: [policycoreutils, policycoreutils-python-utils]

@@ -1,0 +1,4 @@
+# the target subvolume already holds data (e.g. an earlier failed migration): stop, nothing changed
+RESULT=fail
+MSG='subvolume /data on .* is not empty'
+VARS=60-migrate

@@ -1,0 +1,5 @@
+# like 60, but a process uses a file in the already mounted child (/t/data/images, e.g. a running VM): stop
+# before anything is unmounted or copied - the child stays mounted, /t/data unchanged
+RESULT=fail
+MSG='/t/data is in use .*sleep .*/t/data/images/disk.img'
+VARS=60-migrate

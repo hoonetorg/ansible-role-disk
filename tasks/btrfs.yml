@@ -71,20 +71,26 @@
     - disk_fs.device not in disk_absent_devices
     - disk_owner_subvolumes | length > 0
 
-# configuration: mountpoints and fstab are written also for missing removable devices
-- name: Create mountpoint directories
-  ansible.builtin.file:
-    path: "{{ item.1.path }}"
-    state: directory
-  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"
+- name: SELinux rules for top-level views
+  ansible.builtin.include_tasks: selinux.yml
 
+# sorted by path: a parent (/var/lib/libvirt) is mounted before its children (/var/lib/libvirt/images)
 - name: Mount Btrfs subvolumes
-  ansible.posix.mount:
-    path: "{{ item.1.path }}"
-    src: "{{ item.0.device }}"
-    fstype: btrfs
-    opts: "subvol={{ item.1.subvol }},{{ item.1.opts | default('defaults') }}"
-    # present: fstab entry only (e.g. noauto backup disks)
-    state: "{{ item.1.state | default('mounted') }}"
-  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) }}"
+  ansible.builtin.include_tasks: mount.yml
+  vars:
+    disk_managed_mountpoints: >-
+      {{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True})
+         | map(attribute='1.path') | list }}
+  loop: "{{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True}) | sort(attribute='1.path') }}"
+  loop_control:
+    loop_var: disk_m
+    label: "{{ disk_m.1.path }}"
+
+# ansible.posix.mount appends new lines: keep the role's lines sorted by mountpoint (parents before children),
+# so "mount -a" works too (systemd orders nested mounts by path anyway)
+- name: Sort fstab lines of the role by mountpoint
+  disk_fstab_order:
+    paths: >-
+      {{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True})
+         | map(attribute='1.path') | list }}
   notify: disk daemon-reload

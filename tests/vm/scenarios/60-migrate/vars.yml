@@ -1,0 +1,14 @@
+---
+# second key for migrate (normally -e disk_allow_migrate=true for one run)
+disk_allow_migrate: true
+disk:
+  btrfs:
+    filesystems:
+      - device: /dev/disk/by-id/virtio-tdisk1
+        label: t-mig
+        subvolumes:
+          - { name: /data }
+          - { name: /data_images }
+        mounts:
+          - { path: /t/data, subvol: /data, migrate: true }
+          - { path: /t/data/images, subvol: /data_images }

@@ -7,6 +7,8 @@ D3=/dev/disk/by-id/virtio-tdisk3
 FOREIGN_PW=foreign-luks-passphrase
 
 settle() { udevadm settle; }
+# negated check that also works under set -e ("! cmd" never stops a script): not <command...>
+not() { if "$@"; then echo "check failed, command succeeded: $*" >&2; return 1; fi; }
 # gpt <disk> <parted mkpart args...>: new GPT with partitions, e.g. gpt $D1 mkpart a 1MiB 300MiB
 gpt()  { local d=$1; shift; parted -s "$d" mklabel gpt "$@"; partprobe "$d"; settle; }
 luks() { printf %s "$FOREIGN_PW" | cryptsetup luksFormat --type luks2 --pbkdf pbkdf2 --pbkdf-force-iterations 1000 -q "$1" -; }

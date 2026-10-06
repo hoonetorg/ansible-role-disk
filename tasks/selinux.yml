@@ -1,0 +1,51 @@
+---
+# SELinux (disk.selinux: auto = when the kernel runs SELinux): the top-level view of a btrfs filesystem
+# (subvol=/ or subvolid=5, e.g. /cryptdata) shows the same inodes as the subvolume mounts (/home/john ...).
+# A relabel through the top-level path would give them the label of that path (default_t), and the boot
+# autorelabel runs restorecon on all mounts in parallel → the result would depend on the order. Rule
+# "<path>(/.*)? <<none>>": restorecon (and autorelabel) never touch the top-level view; labels are set through
+# the real mountpoints (mount.yml)
+- name: Detect SELinux
+  ansible.builtin.stat:
+    path: /sys/fs/selinux/enforce
+  register: disk_selinux_fs
+
+- name: Set SELinux facts
+  ansible.builtin.set_fact:
+    disk_selinux: >-
+      {{ disk_selinux_fs.stat.exists if (disk.selinux | default('auto')) == 'auto' else disk.selinux | bool }}
+    # mountpoints of top-level views (all states: also noauto backup disks)
+    disk_toplevel_paths: "{{ (disk_tl_by_subvol + disk_tl_by_opts) | unique }}"
+  vars:
+    disk_tl_mounts: >-
+      {{ query('subelements', disk.btrfs.filesystems | default([]), 'mounts', {'skip_missing': True})
+         | map(attribute='1') | list }}
+    disk_tl_by_subvol: "{{ disk_tl_mounts | selectattr('subvol', 'in', ['/', '']) | map(attribute='path') | list }}"
+    disk_tl_by_opts: >-
+      {{ disk_tl_mounts | selectattr('opts', 'defined') | selectattr('opts', 'search', '(^|,)subvolid=5(,|$)')
+         | map(attribute='path') | list }}
+
+- name: SELinux rules for top-level views
+  when: disk_selinux
+  block:
+    - name: Install SELinux tools (restorecon, semanage)
+      ansible.builtin.package:
+        name: "{{ disk_selinux_packages }}"
+        state: present
+
+    - name: Read local SELinux file context rules
+      ansible.builtin.command: semanage fcontext -l -C
+      register: disk_fcontext_local
+      changed_when: false
+      check_mode: false
+      # in check mode semanage may not be installed yet
+      failed_when: disk_fcontext_local.rc != 0 and not ansible_check_mode
+
+    - name: Exclude top-level views from relabeling (<<none>>)
+      ansible.builtin.command:
+        argv: [semanage, fcontext, -a, -t, "<<none>>", "{{ item | regex_replace('/+$', '') }}(/.*)?"]
+      loop: "{{ disk_toplevel_paths | unique }}"
+      register: disk_fcontext_added
+      when: >-
+        disk_fcontext_local.stdout is not search('(?m)^' ~ ((item | regex_replace('/+$', '')) ~ '(/.*)?') | regex_escape
+                                                 ~ '\s+all files\s+<<None>>\s*$')

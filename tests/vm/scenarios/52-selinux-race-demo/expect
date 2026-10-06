@@ -1,0 +1,5 @@
+# the problem the <<none>> rule prevents: without it, restorecon through the top-level view (exactly the
+# command of the boot autorelabel unit) gives the subvolume the label of /t/top; the role repairs it
+RESULT=ok
+KEEP=1
+VARS=50-selinux-labels

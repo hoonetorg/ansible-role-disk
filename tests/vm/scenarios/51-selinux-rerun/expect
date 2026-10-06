@@ -1,0 +1,5 @@
+# second run of 50: no rule added, no relabel
+RESULT=ok
+KEEP=1
+VARS=50-selinux-labels
+CHANGED=0

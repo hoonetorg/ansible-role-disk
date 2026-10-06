@@ -1,0 +1,101 @@
+---
+# mounts[].migrate: copy the data of the (not yet mounted) mountpoint into the empty subvolume, verify it,
+# keep the old directory as <path>.pre-ansible (never deleted by the role), then mount.yml mounts it
+- name: "Migrate {{ disk_m.1.path }}: no leftover of an earlier migration"
+  ansible.builtin.assert:
+    that: not disk_mp.pre_ansible_exists
+    fail_msg: >-
+      {{ disk_m.1.path }}.pre-ansible exists (left over by an earlier migration?): check it and remove it
+      yourself, then run again; nothing changed
+    quiet: true
+
+- name: "Migrate {{ disk_m.1.path }}: not in use"
+  ansible.builtin.assert:
+    that: disk_mp.busy | length == 0
+    fail_msg: >-
+      {{ disk_m.1.path }} is in use (pid command file: {{ disk_mp.busy[:5] | join('; ') }}): stop these
+      processes (e.g. shut down running VMs, or list their units in migrate_stop) and run again; nothing changed
+    quiet: true
+
+- name: "Migrate {{ disk_m.1.path }}: copy, verify, switch"
+  when: not ansible_check_mode
+  vars:
+    disk_mig_mnt: "/run/ansible-disk/{{ disk_m.0.label | default(disk_m.0.device | basename) }}-migrate"
+    disk_mig_dst: "{{ disk_mig_mnt }}/{{ disk_m.1.subvol | trim('/') }}"
+  block:
+    - name: "Migrate {{ disk_m.1.path }}: active units to stop"
+      ansible.builtin.command:
+        argv: [systemctl, is-active, "{{ item }}"]
+      loop: "{{ disk_m.1.migrate_stop | default([]) }}"
+      register: disk_mig_units
+      changed_when: false
+      failed_when: false
+
+    - name: "Migrate {{ disk_m.1.path }}: stop units"
+      ansible.builtin.systemd_service:
+        name: "{{ item }}"
+        state: stopped
+      loop: "{{ disk_mig_units.results | selectattr('stdout', 'eq', 'active') | map(attribute='item') | list }}"
+
+    - name: "Migrate {{ disk_m.1.path }}: remember units to start again"
+      ansible.builtin.set_fact:
+        disk_mnt_restart: "{{ disk_mig_units.results | selectattr('stdout', 'eq', 'active') | map(attribute='item') | list }}"
+
+    - name: "Migrate {{ disk_m.1.path }}: mount top level temporarily"
+      ansible.posix.mount:
+        path: "{{ disk_mig_mnt }}"
+        src: "{{ disk_m.0.device }}"
+        fstype: btrfs
+        opts: subvolid=5
+        state: ephemeral
+      changed_when: false
+
+    - name: "Migrate {{ disk_m.1.path }}: subvolume must be empty"
+      ansible.builtin.find:
+        paths: "{{ disk_mig_dst }}"
+        file_type: any
+        hidden: true
+      register: disk_mig_dst_content
+
+    - name: "Migrate {{ disk_m.1.path }}: assert empty subvolume"
+      ansible.builtin.assert:
+        that: disk_mig_dst_content.matched == 0
+        fail_msg: >-
+          subvolume {{ disk_m.1.subvol }} on {{ disk_m.0.device }} is not empty (earlier failed migration?):
+          check it yourself; {{ disk_m.1.path }} is unchanged
+        quiet: true
+
+    # after all checks: managed mounts below the path (e.g. /var/lib/libvirt/images) are unmounted, only their
+    # (empty) mountpoint directories are copied; they are mounted again on the new parent later in this run
+    - name: "Migrate {{ disk_m.1.path }}: unmount managed mounts below it"
+      ansible.builtin.command:
+        argv: [umount, "{{ item }}"]
+      loop: "{{ disk_mp.children }}"
+      changed_when: true
+
+    - name: "Migrate {{ disk_m.1.path }}: copy and verify"
+      ansible.builtin.script:
+        cmd: "migrate_copy.sh {{ disk_m.1.path | quote }} {{ disk_mig_dst | quote }}"
+
+    - name: "Migrate {{ disk_m.1.path }}: keep the old directory as {{ disk_m.1.path }}.pre-ansible"
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          mv -T -- "$P" "$P.pre-ansible"
+          mkdir -- "$P"
+          chmod --reference="$P.pre-ansible" -- "$P"
+          chown --reference="$P.pre-ansible" -- "$P"
+        executable: /bin/bash
+      environment:
+        P: "{{ disk_m.1.path }}"
+      changed_when: true
+
+    - name: "Migrate {{ disk_m.1.path }}: done"
+      ansible.builtin.set_fact:
+        disk_mnt_migrated: true
+  always:
+    - name: "Migrate {{ disk_m.1.path }}: unmount top level"
+      ansible.posix.mount:
+        path: "{{ disk_mig_mnt }}"
+        state: unmounted
+      changed_when: false

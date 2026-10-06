@@ -1,0 +1,5 @@
+---
+# second key for mounts[].migrate: the inventory says which mountpoints may be migrated, this switch allows it
+# for one run, e.g. ansible-playbook ... -e disk_allow_migrate=true (AWX/AAP: extra variable or survey);
+# without it a mountpoint that would need a migration stops the run, nothing changed
+disk_allow_migrate: false

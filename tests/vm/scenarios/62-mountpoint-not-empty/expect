@@ -1,0 +1,3 @@
+# mountpoint with data, migrate not set: stop before mounting, the data stays visible
+RESULT=fail
+MSG='/t/data is not mounted and contains data .*nothing changed'

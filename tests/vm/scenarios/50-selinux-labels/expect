@@ -1,0 +1,3 @@
+# SELinux: <<none>> rule for the top-level view, labels of a subvolume mount set through its mountpoint
+# (test rule: /t/home gets user_home_dir_t like a real home)
+RESULT=ok

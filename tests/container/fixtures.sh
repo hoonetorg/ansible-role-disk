@@ -20,3 +20,21 @@ cp gpt1.img gpt1_left.img; truncate -s 20M l.tmp; luks l.tmp
 dd if=l.tmp of=gpt1_left.img bs=1M seek=300 conv=notrunc status=none; rm l.tmp
 # for the create/resize run
 mk e2e_new.img; cp gpt1.img e2e_grow.img
+
+# mountpoints for disk_mountpoint_info (no mounts possible in the container: plain directories)
+mkdir -p mp/empty mp/data mp/parent/child mp/parent2/child mp/busy
+echo x > mp/data/file
+echo x > mp/parent2/child/file
+echo x > mp/busy/file
+mkdir -p mp/leftover mp/leftover.pre-ansible
+# a process holding a file below mp/busy open (stdin)
+nohup sleep 3600 < mp/busy/file > /dev/null 2>&1 &
+
+# source tree for migrate_copy.sh: modes, owners, links, empty dir, odd names
+m=migrate/src
+mkdir -p $m/sub/deeper $m/empty "$m/with space"
+echo a > $m/file; echo b > $m/sub/deeper/file; echo c > "$m/with space/f"
+ln -s file $m/link; ln -s /nonexistent $m/dangling; ln $m/file $m/hardlink
+mkfifo $m/fifo
+chmod 1777 $m/sub; chmod 2750 $m/sub/deeper; chmod 0600 $m/file; chmod 0750 $m
+chown -R 1234:2345 $m/sub; chown 1234:2345 $m

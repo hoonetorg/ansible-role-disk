@@ -1,0 +1,4 @@
+# migrate: /t/data holds data on the root fs, its child /t/data/images is already mounted (like
+# /var/lib/libvirt/images): child unmounted, data copied into the subvolume and verified, old directory kept as
+# /t/data.pre-ansible, parent mounted, child mounted again on top of it
+RESULT=ok

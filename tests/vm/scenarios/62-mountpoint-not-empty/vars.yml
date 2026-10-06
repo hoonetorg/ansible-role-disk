@@ -1,0 +1,10 @@
+---
+disk:
+  btrfs:
+    filesystems:
+      - device: /dev/disk/by-id/virtio-tdisk1
+        label: t-mig
+        subvolumes:
+          - { name: /data }
+        mounts:
+          - { path: /t/data, subvol: /data }

@@ -57,8 +57,10 @@ same by-id naming the role uses in production. Every scenario runs as its own `a
 | `CHECK_MODE=1` | run with `-C` |
 | `KEEP=1` | no reset, builds on the previous scenario |
 | `VARS=<scenario>` | use the `vars.yml` of another scenario |
+| `REBOOT=1` | reboot the VM after the role run, `verify.sh` runs after the reboot (e.g. autorelabel) |
 
-Helpers for the scripts are in `vm/lib.sh` (`$D1..$D3`, `gpt`, `luks`, `mixed`, `canary_put/check`,
+Helpers for the scripts are in `vm/lib.sh` (`$D1..$D3`, `gpt`, `luks`, `mixed`, `canary_put/check`, `not`
+(negated check: `! cmd` would not stop a script under `set -e`),
 `sha_head`). Test names: mappers `t_*`, mount points `/t/...`, labels `t-*`.
 
 After the scenarios:
@@ -69,7 +71,11 @@ After the scenarios:
 
 Scenarios: `10`-`19` create/keep (fresh disk, rerun, check mode, subvolume removal, grow/add partitions,
 whole-disk LUKS, backup disk, missing removable disk), `30`-`45` data preservation (each must stop with
-the disks unchanged).
+the disks unchanged), `50`-`54` SELinux (labels through the mountpoint, `<<none>>` for the top-level view,
+the relabel problem demonstrated without the rule, boot autorelabel with `/etc/selinux/.autorelabel` and with
+`/.autorelabel`; need SELinux in the test VM), `60`-`66` mounts (migration of a
+populated mountpoint with an already mounted child, rerun, stop on: data without `migrate`, leftover
+`.pre-ansible`, process using the path or a file in its mounted child, non-empty subvolume).
 
 ## CI (not set up yet)
 

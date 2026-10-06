@@ -14,5 +14,6 @@
 
     - name: Install disk tools
       ansible.builtin.package:
-        name: [parted, cryptsetup, btrfsprogs, e2fsprogs, util-linux]
+        name: [parted, cryptsetup, btrfsprogs, e2fsprogs, util-linux, policycoreutils, policycoreutils-python-utils,
+               selinux-autorelabel, selinux-tools]
         state: present

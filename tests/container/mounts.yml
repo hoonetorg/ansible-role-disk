@@ -1,0 +1,130 @@
+---
+- name: role vars (task files are included directly)
+  ansible.builtin.include_vars: "{{ role_dir }}/vars/main.yml"
+
+# mount safety (disk_mountpoint_info), migration copy (migrate_copy.sh) and SELinux rules (selinux.yml)
+- name: disk_mountpoint_info cases
+  block:
+    - name: mountpoint info
+      disk_mountpoint_info:
+        path: "{{ I }}/mp/{{ item }}"
+        managed: ["{{ I }}/mp/parent/child", "{{ I }}/mp/parent2/child"]
+      loop: [empty, data, parent, parent2, busy, leftover, missing]
+      register: mpi
+    - name: mountpoint info expectations
+      ansible.builtin.assert:
+        that:
+          - r.empty.exists and not r.empty.mounted and r.empty.content == [] and r.empty.busy == []
+          - r.data.content == [I ~ '/mp/data/file']
+          - r.parent.content == []                                   # managed empty child does not count
+          - r.parent2.content == [I ~ '/mp/parent2/child']           # managed child with data counts
+          - r.busy.busy | length == 1 and r.busy.busy[0] is search('sleep .*/mp/busy/file$')
+          - r.leftover.pre_ansible_exists and not r.empty.pre_ansible_exists
+          - not r.missing.exists and r.missing.content == []
+        quiet: true
+      vars:
+        r: "{{ dict(mpi.results | map(attribute='item') | zip(mpi.results)) }}"
+    - name: mountpoint info passed
+      ansible.builtin.set_fact:
+        case_report: "{{ case_report + ['OK  disk_mountpoint_info: empty, data, managed children, busy process, leftover, missing'] }}"
+  rescue:
+    - name: mountpoint info failed
+      ansible.builtin.set_fact:
+        case_report: "{{ case_report + ['BAD disk_mountpoint_info: ' ~ ansible_failed_task.name ~ ' | ' ~ ansible_failed_result.msg | default('')] }}"
+
+- name: migrate_copy.sh cases
+  block:
+    - name: copy into an empty directory
+      ansible.builtin.shell: |
+        set -e; rm -rf {{ I }}/migrate/dst; mkdir {{ I }}/migrate/dst
+        bash {{ role_dir }}/files/migrate_copy.sh {{ I }}/migrate/src {{ I }}/migrate/dst
+        # attributes of the top directory are copied too
+        [ "$(stat -c '%a %u %g' {{ I }}/migrate/dst)" = "750 1234 2345" ]
+        [ "$(stat -c '%i' {{ I }}/migrate/dst/file)" = "$(stat -c '%i' {{ I }}/migrate/dst/hardlink)" ]
+      register: mc_ok
+    - name: refuse a non-empty target
+      ansible.builtin.shell: bash {{ role_dir }}/files/migrate_copy.sh {{ I }}/migrate/src {{ I }}/migrate/dst
+      register: mc_nonempty
+      failed_when: mc_nonempty.rc != 2 or mc_nonempty.stderr is not search('is not empty')
+    # negative control: a cp that silently loses a file must be detected by the comparison
+    - name: incomplete copy is detected
+      ansible.builtin.shell: |
+        rm -rf {{ I }}/migrate/dst2 {{ I }}/migrate/bin; mkdir -p {{ I }}/migrate/dst2 {{ I }}/migrate/bin
+        printf '#!/bin/sh\n/bin/cp "$@" && rm -f %s/migrate/dst2/sub/deeper/file\n' {{ I }} > {{ I }}/migrate/bin/cp
+        chmod +x {{ I }}/migrate/bin/cp
+        PATH={{ I }}/migrate/bin:$PATH bash {{ role_dir }}/files/migrate_copy.sh {{ I }}/migrate/src {{ I }}/migrate/dst2
+      register: mc_lossy
+      failed_when: mc_lossy.rc != 1 or mc_lossy.stderr is not search('content differs')
+    - name: changed mode is detected
+      ansible.builtin.shell: |
+        rm -rf {{ I }}/migrate/dst3; mkdir -p {{ I }}/migrate/dst3
+        printf '#!/bin/sh\n/bin/cp "$@" && chmod 0644 %s/migrate/dst3/file\n' {{ I }} > {{ I }}/migrate/bin/cp
+        PATH={{ I }}/migrate/bin:$PATH bash {{ role_dir }}/files/migrate_copy.sh {{ I }}/migrate/src {{ I }}/migrate/dst3
+      register: mc_mode
+      failed_when: mc_mode.rc != 1 or mc_mode.stderr is not search('metadata differs')
+    - name: migrate_copy passed
+      ansible.builtin.set_fact:
+        case_report: "{{ case_report + ['OK  migrate_copy.sh: copy verified (' ~ mc_ok.stdout_lines[-1] ~ '), non-empty target refused, lost file and changed mode detected'] }}"
+  rescue:
+    - name: migrate_copy failed
+      ansible.builtin.set_fact:
+        case_report: "{{ case_report + ['BAD migrate_copy.sh: ' ~ ansible_failed_task.name ~ ' | ' ~ (ansible_failed_result.stderr | default(ansible_failed_result.msg | default(''))) ] }}"
+
+# selinux.yml on the policy store of the container (semanage works without SELinux running)
+- name: selinux.yml cases
+  vars:
+    disk:
+      selinux: true
+      btrfs:
+        filesystems:
+          - device: /dev/mapper/t_data
+            mounts:
+              - { path: /t/top, subvol: / }
+              - { path: /t/home, subvol: /home }
+          - device: /dev/mapper/t_backup
+            mounts:
+              - { path: /t/backup/, subvol: "", state: present, opts: "noauto,nofail" }
+              - { path: /t/top5, subvol: /x, opts: "subvolid=5,compress=zstd" }
+  block:
+    - name: selinux reset
+      ansible.builtin.command: semanage fcontext -D
+    - name: selinux.yml first run
+      ansible.builtin.include_tasks: "{{ role_dir }}/tasks/selinux.yml"
+    - name: selinux first run result
+      ansible.builtin.set_fact:
+        se_added1: "{{ disk_fcontext_added.results | selectattr('changed') | map(attribute='item') | list }}"
+    - name: selinux.yml second run
+      ansible.builtin.include_tasks: "{{ role_dir }}/tasks/selinux.yml"
+    - name: lookups
+      ansible.builtin.command: matchpathcon /t/top/home/x /t/backup/h /t/top5 /t/home/x /t/topx
+      register: se_lookup
+      changed_when: false
+    - name: selinux expectations
+      ansible.builtin.assert:
+        that:
+          - se_added1 | sort == ['/t/backup/', '/t/top', '/t/top5']
+          - disk_fcontext_added.results | selectattr('changed') | list | length == 0
+          - se_lookup.stdout_lines[0] is search('<<none>>$')
+          - se_lookup.stdout_lines[1] is search('<<none>>$')
+          - se_lookup.stdout_lines[2] is search('<<none>>$')
+          - se_lookup.stdout_lines[3] is not search('<<none>>')
+          - se_lookup.stdout_lines[4] is not search('<<none>>')     # /t/topx: prefix only, not excluded
+        quiet: true
+    - name: selinux false
+      ansible.builtin.command: semanage fcontext -D
+    - name: selinux.yml with selinux false
+      ansible.builtin.include_tasks: "{{ role_dir }}/tasks/selinux.yml"
+      vars:
+        disk: { selinux: false, btrfs: { filesystems: [ { device: /dev/x, mounts: [ { path: /t/top, subvol: / } ] } ] } }
+    - name: no rules with selinux false
+      ansible.builtin.command: semanage fcontext -l -C
+      register: se_none
+      changed_when: false
+      failed_when: se_none.stdout is search('/t/top')
+    - name: selinux passed
+      ansible.builtin.set_fact:
+        case_report: "{{ case_report + ['OK  selinux.yml: <<none>> for subvol / and subvolid=5 (also noauto), idempotent, other paths untouched, selinux: false sets nothing'] }}"
+  rescue:
+    - name: selinux failed
+      ansible.builtin.set_fact:
+        case_report: "{{ case_report + ['BAD selinux.yml: ' ~ ansible_failed_task.name ~ ' | ' ~ ansible_failed_result.msg | default('')] }}"

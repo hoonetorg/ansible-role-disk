@@ -1,0 +1,11 @@
+---
+disk:
+  btrfs:
+    filesystems:
+      - device: /dev/disk/by-id/virtio-tdisk1
+        label: t-se
+        subvolumes:
+          - { name: /home }
+        mounts:
+          - { path: /t/top, subvol: / }
+          - { path: /t/home, subvol: /home }

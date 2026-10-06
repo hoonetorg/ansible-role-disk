@@ -84,11 +84,23 @@ start_vm() {
   ansible-playbook $T/bootstrap.yml > $W/logs/bootstrap.log 2>&1 || { log "bootstrap failed, see logs/bootstrap.log"; return 1; }
 }
 
+# reboot (REBOOT=1 in expect, e.g. autorelabel): wait until ssh is gone, then until it is back
+reboot_vm() {
+  vmsh systemctl reboot || true
+  local t0=$SECONDS
+  while vmsh true 2>/dev/null; do (( SECONDS - t0 > 120 )) && { log "VM did not go down"; return 1; }; sleep 2; done
+  until vmsh true 2>/dev/null; do
+    (( SECONDS - t0 > ${BOOT_TIMEOUT:-600} )) && { screenshot; log "VM did not come back"; return 1; }
+    sleep 5
+  done
+  log "VM back after reboot ($((SECONDS - t0))s)"
+}
+
 # --- one scenario: reset, prepare, checksums, role run, expectations
 # sets PROBLEMS (empty = OK) and SUMMARY_LINE; roles_path can be overridden for the negative control
 run_scenario() {
   local dir=$1 name; name=$(basename "$dir")
-  local RESULT=ok MSG="" CHANGED="" PRESERVE="" CHECK_MODE="" KEEP="" VARS=""
+  local RESULT=ok MSG="" CHANGED="" PRESERVE="" CHECK_MODE="" KEEP="" VARS="" REBOOT=""
   source "$dir/expect"
   local vars=$dir/vars.yml; [ -n "$VARS" ] && vars=$T/scenarios/$VARS/vars.yml
   local out=$W/logs/$name.log
@@ -112,6 +124,10 @@ run_scenario() {
   for d in $PRESERVE; do
     [ "$(vmsh sha256sum /dev/disk/by-id/virtio-$d | cut -d' ' -f1)" = "${before[$d]}" ] || PROBLEMS+=("$d was modified")
   done
+  if [ -n "$REBOOT" ]; then
+    echo "### reboot" >> "$out"
+    reboot_vm >> "$out" 2>&1 || PROBLEMS+=("VM did not come back after reboot")
+  fi
   if [ -f "$dir/verify.sh" ]; then
     echo "### verify.sh" >> "$out"
     vmscript "$dir/verify.sh" >> "$out" 2>&1 || PROBLEMS+=("verify.sh failed")

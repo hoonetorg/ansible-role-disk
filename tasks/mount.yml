@@ -1,0 +1,107 @@
+---
+# one mount: disk_m.0 = filesystem, disk_m.1 = mount; mounts are processed sorted by path (parents first)
+- name: "Mount {{ disk_m.1.path }}: set facts"
+  ansible.builtin.set_fact:
+    # mounted now (state mounted, device connected); state present only writes the fstab entry
+    disk_mnt_active: "{{ disk_m.1.state | default('mounted') == 'mounted' and disk_m.0.device not in disk_absent_devices }}"
+    disk_mnt_restart: []
+    disk_mnt_migrated: false
+
+- name: "Mount {{ disk_m.1.path }}: inspect mountpoint"
+  disk_mountpoint_info:
+    path: "{{ disk_m.1.path }}"
+    managed: "{{ disk_managed_mountpoints }}"
+  register: disk_mp
+  when: disk_mnt_active
+
+# not mounted yet: a mount must not hide existing data
+- name: "Mount {{ disk_m.1.path }}: check mountpoint"
+  when: disk_mnt_active and disk_mp.exists and not disk_mp.mounted
+  block:
+    - name: "Mount {{ disk_m.1.path }}: no foreign mounts below"
+      ansible.builtin.assert:
+        that: disk_mp.unmanaged_children | length == 0
+        fail_msg: >-
+          {{ disk_m.1.path }}: mounts below it are not managed by this role ({{ disk_mp.unmanaged_children | join(', ') }}):
+          mounting {{ disk_m.1.path }} would hide them - unmount them first; nothing changed
+        quiet: true
+
+    - name: "Mount {{ disk_m.1.path }}: mountpoint empty or migrate set"
+      ansible.builtin.assert:
+        that: disk_mp.content | length == 0 or disk_m.1.migrate | default(false) | bool
+        fail_msg: >-
+          {{ disk_m.1.path }} is not mounted and contains data ({{ disk_mp.content[:5] | join(', ') }}{{ ', ...'
+          if disk_mp.content | length > 5 else '' }}): mounting the subvolume would hide it; nothing changed.
+          Move the data away yourself, or set migrate: true on this mount and run once with
+          -e disk_allow_migrate=true (copies it into the subvolume and keeps the old directory as
+          {{ disk_m.1.path }}.pre-ansible)
+        quiet: true
+
+    - name: "Mount {{ disk_m.1.path }}: migration allowed for this run"
+      ansible.builtin.assert:
+        that: disk_mp.content | length == 0 or disk_allow_migrate | bool
+        fail_msg: >-
+          {{ disk_m.1.path }} is not mounted and contains data ({{ disk_mp.content[:5] | join(', ') }}{{ ', ...'
+          if disk_mp.content | length > 5 else '' }}); migrate is set for this mount, but migrations are not
+          allowed in this run: run once with -e disk_allow_migrate=true (copies the data into the subvolume and
+          keeps the old directory as {{ disk_m.1.path }}.pre-ansible); nothing changed
+        quiet: true
+
+    # e.g. /var/lib/libvirt/images is mounted and /var/lib/libvirt gets its own subvolume: the child is
+    # unmounted here and mounted again (on the new parent) later in this run; with a migration this happens in
+    # migrate.yml after its checks
+    - name: "Mount {{ disk_m.1.path }}: unmount managed mounts below it"
+      ansible.builtin.command:
+        argv: [umount, "{{ item }}"]
+      loop: "{{ disk_mp.children }}"
+      changed_when: true
+      when: not ansible_check_mode and disk_mp.content | length == 0
+
+    - name: "Mount {{ disk_m.1.path }}: migrate existing data into the subvolume"
+      ansible.builtin.include_tasks: migrate.yml
+      when: disk_mp.content | length > 0
+
+# configuration: mountpoints and fstab are written also for missing removable devices
+- name: "Mount {{ disk_m.1.path }}: mountpoint directory"
+  ansible.builtin.file:
+    path: "{{ disk_m.1.path }}"
+    state: directory
+
+- name: "Mount {{ disk_m.1.path }}: mount"
+  ansible.posix.mount:
+    path: "{{ disk_m.1.path }}"
+    src: "{{ disk_m.0.device }}"
+    fstype: btrfs
+    opts: "subvol={{ disk_m.1.subvol }},{{ disk_m.1.opts | default('defaults') }}"
+    # present: fstab entry only (e.g. noauto backup disks)
+    state: "{{ disk_m.1.state | default('mounted') }}"
+  register: disk_mnt_result
+  notify: disk daemon-reload
+
+- name: "Mount {{ disk_m.1.path }}: start units stopped for the migration"
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: started
+  loop: "{{ disk_mnt_restart }}"
+
+# SELinux labels through the real mountpoint (a new subvolume has none, migrated data keeps its own);
+# recursive only when the mount is new/migrated or its root had a wrong label, otherwise the root only (cheap)
+- name: "Mount {{ disk_m.1.path }}: SELinux labels"
+  when: disk_selinux and disk_mnt_active and disk_m.1.path not in disk_toplevel_paths
+  block:
+    - name: "Mount {{ disk_m.1.path }}: SELinux label of the mountpoint"
+      ansible.builtin.command:
+        argv: "{{ ['restorecon', '-v'] + (['-n'] if ansible_check_mode else []) + [disk_m.1.path] }}"
+      register: disk_restorecon_root
+      changed_when: disk_restorecon_root.stdout | length > 0
+      check_mode: false
+      failed_when: disk_restorecon_root.rc != 0 and not ansible_check_mode
+
+    - name: "Mount {{ disk_m.1.path }}: SELinux labels of the content"
+      ansible.builtin.command:
+        argv: "{{ ['restorecon', '-R', '-v'] + (['-n'] if ansible_check_mode else []) + [disk_m.1.path] }}"
+      register: disk_restorecon_tree
+      changed_when: disk_restorecon_tree.stdout | length > 0
+      check_mode: false
+      failed_when: disk_restorecon_tree.rc != 0 and not ansible_check_mode
+      when: disk_restorecon_root is changed or disk_mnt_result is changed or disk_mnt_migrated

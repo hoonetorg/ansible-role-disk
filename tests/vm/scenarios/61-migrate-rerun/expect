@@ -1,0 +1,5 @@
+# second run of 60: mounted, nothing to migrate, nothing changes
+RESULT=ok
+KEEP=1
+VARS=60-migrate
+CHANGED=0
