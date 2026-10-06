@@ -230,6 +230,9 @@ rules on the policy store, ~1 min) and `tests/run-vm.sh` (the whole role in a
 throwaway Leap 16.1 VM: creation, idempotency and data-preservation scenarios, ~15 min); see
 [tests/README.md](tests/README.md).
 
+Manual checks on a real host after a rollout, a migration, a reboot or a reinstall:
+[MANUAL-CHECKS.md](MANUAL-CHECKS.md).
+
 ## License
 
 Apache-2.0
