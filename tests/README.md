@@ -17,12 +17,17 @@ HOLD_VM=1 tests/run-vm.sh 10            # keep the VM running afterwards for deb
                                         #   podman exec -it <container> ssh -i /work/id -p 2222 root@127.0.0.1
 CONTAINER_ENGINE=docker QEMU_ACCEL=tcg tests/run-vm.sh
 tests/build-image.sh                    # rebuild the test image after changing tests/Containerfile
+                                        #   (a changed nsbldr image is picked up automatically)
 ```
 
 ## Where things live
 
-- test image `localhost/ansible-role-disk-tests` (`Containerfile`: Debian with the same ansible as the
-  nsbldr container, disk tools, qemu), built on first use
+- test image `localhost/ansible-role-disk-tests` (`Containerfile`: Debian with disk tools and qemu), built on
+  first use; its ansible is the one of the nsbldr image (`localhost/nsbldr:latest`, the production controller):
+  `controller.sh` reads ansible-core, its Python dependencies and the collections the role uses from it (copied
+  out of it, nothing from Galaxy), prints them at the start of every run and rebuilds the test image when they
+  changed (label `controller.versions` of the test image); `NSBLDR_IMAGE=...` for another one. Needs the nsbldr
+  image (`cnsbldr --build`).
 - base VM image (Leap 16.1 Minimal-VM Cloud, ~340 MB, sha256 checked): `~/.cache/ansible-role-disk-tests/`
   (`CACHE_DIR`)
 - work dir `/var/tmp/ansible-role-disk-tests/` (`WORK_DIR`, not `/tmp`: that is RAM on many systems):

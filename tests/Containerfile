@@ -1,13 +1,19 @@
-# test image for ansible-role-disk: ansible controller (same Debian ansible as the nsbldr container),
-# disk tools for the image-file checks, SELinux tools + policy (semanage works on the policy store
-# without SELinux running) and qemu for the VM tests
+# test image for ansible-role-disk: disk tools for the image-file checks, SELinux tools + policy (semanage works
+# on the policy store without SELinux running), qemu for the VM tests, and as ansible controller exactly what the
+# nsbldr image provides: built by controller.sh (ANSIBLE_PINS, collections/ copied out of the nsbldr image)
 FROM docker.io/library/debian:trixie
+ARG ANSIBLE_PINS
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      ansible python3-xmltodict openssh-client ca-certificates curl \
+      python3 python3-venv openssh-client ca-certificates curl \
       parted cryptsetup-bin btrfs-progs e2fsprogs util-linux fdisk \
       selinux-policy-default policycoreutils policycoreutils-python-utils selinux-utils \
       qemu-system-x86 qemu-utils xorriso \
  && rm -rf /var/lib/apt/lists/* \
  && printf '#!/bin/sh\n# no udev in the container (parted calls udevadm settle)\nexit 0\n' > /usr/local/bin/udevadm \
  && chmod +x /usr/local/bin/udevadm
+RUN test -n "$ANSIBLE_PINS" \
+ && python3 -m venv /opt/ansible \
+ && /opt/ansible/bin/pip install --no-cache-dir $ANSIBLE_PINS
+COPY collections /usr/share/ansible/collections
+ENV PATH=/opt/ansible/bin:$PATH
